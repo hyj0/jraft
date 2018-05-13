@@ -1,0 +1,10 @@
+[submodule "third_party/libco"]
+	path = third_party/libco
+	url = https://github.com/hyj0/libco.git
+	branch = hyj0
+[submodule "third_party/json11"]
+	path = third_party/json11
+	url = https://github.com/dropbox/json11.git
+[submodule "third_party/pb2json"]
+	path = third_party/pb2json
+	url = https://github.com/HaustWang/pb2json.git

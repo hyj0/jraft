@@ -1,0 +1,75 @@
+syntax="proto2";
+package jraft.Network;
+
+message VoteReq {
+    optional uint32 term = 1;
+    optional string candidate_id = 2;
+    optional int64 last_log_index = 3;
+    optional int64 last_log_term = 4;
+};
+
+message VoteRes {
+    optional int64 term = 1;
+    optional bool granted = 2;
+};
+
+message LogEntry {
+    optional string action = 1;// change, delete
+    optional string key = 2;
+    optional string value = 3;
+}
+
+message RpcReq {
+    optional uint32 term = 1;
+    optional string leader_id = 2;
+    optional uint32 prev_log_index = 3;
+    optional uint32 prev_log_term = 4;
+    repeated LogEntry log_entrys = 5;
+    optional uint32 leader_commit = 6;
+}
+
+message RpcRes {
+    optional uint32 term = 1;
+    optional bool success = 2;
+    optional uint32 match_index = 3;
+}
+
+message CliReq {
+    optional string client_id = 1;
+    optional uint32 request_type = 2;//1--add entry, 2--get entry, 3--get last log index
+    optional uint32 log_index = 3;
+    optional LogEntry log_entry = 4;
+}
+
+message CliRes {
+    optional uint32 result = 1;//0--success, 1--raft err, else--err
+    optional string err_msg = 2;//
+    optional uint32 raft_state = 3;// 1--leader 2--follower, 3--candidater
+    optional string leader_id = 4;
+    optional uint32 last_log_index = 5;
+    optional uint32 key_state = 6;//1--commited, 2--applied
+    optional LogEntry log_entry = 7;
+    optional uint32 commit_index = 8;
+}
+
+enum MsgType {
+    MSG_Type_Vote_Request = 1;
+    MSG_Type_Vote_Response = 2;
+    MSG_Type_Rpc_Request = 3;
+    MSG_Type_Rpc_Response = 4;
+    MSG_Type_Cli_Request = 5;
+    MSG_Type_Cli_Response = 6;
+};
+
+message Msg {
+    optional string group_id = 1;
+    optional MsgType msg_type = 2;
+    oneof MsgContent{
+        VoteReq vote_request = 3;
+        VoteRes vote_response = 4;
+        RpcReq rpc_request = 5;
+        RpcRes rpc_response = 6;
+        CliReq cli_request = 7;
+        CliRes cli_response = 8;
+    }
+};

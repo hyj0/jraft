@@ -1,0 +1,114 @@
+//
+// Created by dell-pc on 2018/5/6.
+//
+#include <iostream>
+#include <sys/socket.h>
+#include <asm/byteorder.h>
+#include <cygwin/in.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include "Network.h"
+#include "Log.h"
+#include "pb2json.h"
+
+using namespace std;
+
+int SetNonBlock(int iSock)
+{
+    int iFlags;
+
+    iFlags = fcntl(iSock, F_GETFL, 0);
+    iFlags |= O_NONBLOCK;
+    iFlags |= O_NDELAY;
+    int ret = fcntl(iSock, F_SETFL, iFlags);
+    return ret;
+}
+
+
+int CreateUdpSecket(char *host, int port, int reuse)
+{
+    co_enable_hook_sys();
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        LOG_COUT << "create socket err ret=" << sockfd << LOG_ENDL_ERR;
+        return sockfd;
+    }
+    if (reuse) {
+        int nResuseAddr = 1;
+        int ret = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &nResuseAddr, sizeof(nResuseAddr));
+    }
+    struct sockaddr_in addr;
+    bzero(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((uint16_t)port);
+    int ret = bind(sockfd, (const sockaddr *)&addr, sizeof(addr));
+    if (ret < 0) {
+        LOG_COUT << "bind ret=" << ret << LOG_ENDL_ERR;
+        close(sockfd);
+        return ret;
+    }
+    return sockfd;
+}
+
+
+void Network::sendMsg(const pair<string, int> &pair, jraft::Network::Msg &msg) {
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(struct sockaddr_in));
+    address.sin_family=AF_INET;
+    inet_pton(AF_INET, pair.first.c_str(), &address.sin_addr);
+    address.sin_port=htons(static_cast<uint16_t>(pair.second));
+
+//    shared_ptr<unsigned char > buff = make_shared<unsigned char>(msg.ByteSize());
+//    if (!msg.SerializePartialToArray(buff.get(), msg.ByteSize())) {
+//        LOG_COUT << "msg serial err" << LOG_ENDL_ERR;
+//        return;
+//    }
+//
+    Pb2Json::Json json;
+    Pb2Json::Message2Json(msg, json, true);
+    string strMsg = json.dump();
+    LOG_COUT << "-->" << pair.first <<":"<<pair.second << " msg=" << json << LOG_ENDL;
+    ssize_t ret = sendto(selfnodeFd, strMsg.c_str(), strMsg.length(), 0,
+                         (struct sockaddr *)&address,
+                         sizeof(struct sockaddr_in));
+    if (ret < 0) {
+        LOG_COUT << "sendto err" << LOG_ENDL_ERR;
+    }
+}
+
+shared_ptr<pair<shared_ptr<pair<string, int>>, shared_ptr<jraft::Network::Msg>>> Network::waitMsgTimeOut(int m_sec) {
+    shared_ptr<pair<shared_ptr<pair<string, int>>, shared_ptr<jraft::Network::Msg>>> msg;
+    if (queueMsg.empty()) {
+        co_cond_timedwait(this->getCond(), m_sec);
+    }
+    if (!queueMsg.empty()) {
+        pair<shared_ptr<sockaddr_in>, shared_ptr<jraft::Network::Msg>> &pMsg = queueMsg.front();
+        msg = make_shared<pair<shared_ptr<pair<string, int>>, shared_ptr<jraft::Network::Msg>>>(
+                address2pair(pMsg.first), pMsg.second);
+        queueMsg.pop();
+
+        Pb2Json::Json  json;
+        Pb2Json::Message2Json(*pMsg.second.get(), json, true);
+
+        LOG_COUT << "recvMsg:" << json << LOG_ENDL;
+    }
+    return msg;
+}
+
+shared_ptr<pair<string, int>> Network::address2pair(shared_ptr<sockaddr_in> address) {
+    char str[17];
+    inet_ntop(AF_INET, &address->sin_addr, str, sizeof(str));
+    int port = ntohs(address->sin_port);
+    shared_ptr<pair<string, int>> addressPair = make_shared<pair<string, int>>(str, port);
+    return addressPair;
+}
+
+shared_ptr<sockaddr_in> Network::host2address(string &host, int port) {
+    struct sockaddr_in *addr = static_cast<sockaddr_in *>(malloc(sizeof(struct sockaddr_in)));
+    shared_ptr<struct sockaddr_in> address(addr);
+    address->sin_family=AF_INET;
+    inet_pton(AF_INET, host.c_str(), &address->sin_addr);
+    address->sin_port=htons(port);
+    return address;
+}
