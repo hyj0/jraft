@@ -8,3 +8,6 @@
 [submodule "third_party/pb2json"]
 	path = third_party/pb2json
 	url = https://github.com/HaustWang/pb2json.git
+[submodule "third_party/leveldb"]
+	path = third_party/leveldb
+	url = https://github.com/google/leveldb.git

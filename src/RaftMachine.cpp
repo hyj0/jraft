@@ -8,7 +8,6 @@
 #include <sstream>
 #include "pb2json.h"
 
-#define VOTEFOR_NULL string("NULL")
 
 void RaftMachine::changeRaftStat(RaftStatus to) {
 
@@ -50,7 +49,7 @@ int RaftMachine::followerProcess() {
         switch (recvMsg->msg_type()) {
             case jraft::Network::MsgType::MSG_Type_Vote_Request:
             {
-                bool result = true;
+                bool result = false;
                 jraft::Network::VoteReq *voteReqMsg = recvMsg->mutable_vote_request();
                 if (voteReqMsg->term() < raftConfig.current_term()) {
                     result = false;
@@ -59,6 +58,7 @@ int RaftMachine::followerProcess() {
                         && raftConfig.last_applied() <= voteReqMsg->last_log_index()) {
                     raftConfig.set_current_term(voteReqMsg->term());
                     raftConfig.set_votefor(voteReqMsg->candidate_id());
+                    storage->setRaftConfig(raftConfig);
                     result = true;
                 }
 
@@ -115,6 +115,7 @@ int RaftMachine::followerProcess() {
                 if (rpcReq->term() > raftConfig.current_term()) {
                     raftConfig.set_current_term(rpcReq->term());
                 }
+                storage->setRaftConfig(raftConfig);
 
                 jraft::Network::Msg msg;
                 msg.set_group_id(groupCfg->getGroupId());
@@ -160,6 +161,7 @@ int RaftMachine::candidaterProcess() {
         this->raftConfig.set_current_term(raftConfig.current_term()+1);
         this->raftConfig.set_votefor(this->pair2NodeId(selfNode.get()));
         voteCount += 1;//self vote
+        storage->setRaftConfig(raftConfig);
 
         for (int i = 0; i < groupCfg->getNodes().size(); ++i) {
             jraft::Network::Msg msg;
@@ -194,6 +196,8 @@ int RaftMachine::candidaterProcess() {
                     if (voteResponse->term() > raftConfig.current_term()) {
                         raftConfig.set_current_term(voteResponse->term());
                         raftConfig.set_votefor(VOTEFOR_NULL);
+                        storage->setRaftConfig(raftConfig);
+
                         /*todo: reset vote??? */
                         voteCount = 0;
                         changeRaftStat(RAFT_STAT_FOLLOWER);
@@ -224,11 +228,13 @@ int RaftMachine::candidaterProcess() {
                         result = false;
                     } else {
                         raftConfig.set_current_term(voteReqMsg->term());
-                        raftConfig.set_votefor(voteReqMsg->candidate_id());
+                        raftConfig.set_votefor(VOTEFOR_NULL);
                         if (voteReqMsg->last_log_index() >= raftConfig.last_applied()) {
+                            raftConfig.set_votefor(voteReqMsg->candidate_id());
                             result = true;
                         }
                     }
+                    storage->setRaftConfig(raftConfig);
 
                     jraft::Network::Msg msg;
                     msg.set_group_id(groupCfg->getGroupId());
@@ -251,6 +257,7 @@ int RaftMachine::candidaterProcess() {
                     jraft::Network::RpcReq *rpcReq = recvMsg->mutable_rpc_request();
                     if (rpcReq->term() > raftConfig.current_term()) {
                         raftConfig.set_current_term(rpcReq->term());
+                        storage->setRaftConfig(raftConfig);
                     }
                     this->leader_id = rpcReq->leader_id();
                     changeRaftStat(RAFT_STAT_FOLLOWER);
@@ -310,7 +317,7 @@ int RaftMachine::leaderProcess() {
                     case jraft::Network::MsgType::MSG_Type_Vote_Request:
                     {
                         bool need2Follower = false;
-                        bool result;
+                        bool result = false;
                         jraft::Network::VoteReq *voteReqMsg = recvMsg->mutable_vote_request();
                         if (voteReqMsg->term() <= raftConfig.current_term()) {
                             result = false;
@@ -322,6 +329,8 @@ int RaftMachine::leaderProcess() {
                             }
                             need2Follower = true;
                         }
+                        storage->setRaftConfig(raftConfig);
+
                         jraft::Network::Msg msg;
                         msg.set_group_id(groupCfg->getGroupId());
                         msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Rpc_Request);
@@ -341,10 +350,18 @@ int RaftMachine::leaderProcess() {
                         //todo:leader rpc response
                         jraft::Network::RpcRes *rpcRes = recvMsg->mutable_rpc_response();
                         string nodeId = pair2NodeId(*addressMsgPair->first);
+                        if (rpcRes->term() > raftConfig.current_term()) {
+                            raftConfig.set_current_term(rpcRes->term());
+                            raftConfig.set_votefor(VOTEFOR_NULL);
+                            storage->setRaftConfig(raftConfig);
+                            changeRaftStat(RAFT_STAT_FOLLOWER);
+                            return 0;
+                        }
                         nodesLogInfo->setNextIndex(nodeId, rpcRes->match_index()+1);
 
                         nodesLogInfo->setMatchIndex(nodeId, rpcRes->match_index());
                         raftConfig.set_commit_index(nodesLogInfo->getMaxCommitedId());
+                        storage->setRaftConfig(raftConfig);
                         break;
                     }
                     case jraft::Network::MsgType::MSG_Type_Cli_Request:
@@ -381,6 +398,7 @@ int RaftMachine::leaderProcess() {
                                 entry->set_key(cliReq->mutable_log_entry()->key());
                                 entry->set_value(cliReq->mutable_log_entry()->value());
                                 raftConfig.set_last_applied(raftConfig.last_applied() + 1);
+                                storage->setRaftConfig(raftConfig);
                                 storage->setRaftLog(configLog, raftConfig.last_applied());
                                 break;
                             }
@@ -442,6 +460,7 @@ int RaftMachine::leaderProcess() {
             LOG_COUT << "nodesJon=" << json.dump() << LOG_ENDL;
             entry->set_value(json.dump());
             raftConfig.set_last_applied(raftConfig.last_applied() + 1);
+            storage->setRaftConfig(raftConfig);
             storage->setRaftLog(configLog, raftConfig.last_applied());
         }
 

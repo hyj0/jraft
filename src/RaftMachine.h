@@ -6,6 +6,8 @@
 #define PROJECT_RAFTMACHINE_H
 
 #include "Common.h"
+#define VOTEFOR_NULL string("NULL")
+
 
 enum RaftStatus {
     RAFT_STAT_LEADER = 1,

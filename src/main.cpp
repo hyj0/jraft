@@ -12,6 +12,7 @@
 #include "RaftMachine.h"
 #include "pb2json.h"
 #include "Utils.h"
+#include "Storage_leveldb.h"
 
 using namespace std;
 
@@ -126,7 +127,11 @@ int main(int argc, char **argv)
     vector<shared_ptr<GroupCfg>> groups = config.getGroups();
     for (int i = 0; i < groups.size(); ++i) {
         Common *common = new Common();
-        common->setStorage(new Storage());
+        shared_ptr<GroupCfg> &oneGroup = groups[i];
+        stringstream strNodeSpecBuf;
+        strNodeSpecBuf << oneGroup->getGroupId() << "_" << selfnode->first << "_" << selfnode->second;
+        common->setStorage(new Storage_leveldb(const_cast<string &>(groups[i]->getStorage()),
+                                               strNodeSpecBuf.str()));
         common->setNetwork(new Network(servFd));
         common->setGroupCfg(groups[i].get());
         common->setSelfnode(selfnode);

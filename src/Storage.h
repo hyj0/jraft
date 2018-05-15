@@ -11,33 +11,35 @@
 #include "Log.h"
 
 class Storage {
-private:
+protected:
     jraft::Storage::RaftConfig raftConfig;
     GroupCfg groupCfg;
     vector<jraft::Storage::Log> raftLogArray;
 public:
-    Storage () {
+    Storage (string & storageName, string nodeId) {
         jraft::Storage::Log log;
         raftLogArray.push_back(log);
     }
 
-    const GroupCfg &getGroupCfg() const {
+    virtual ~Storage() {}
+
+    virtual const GroupCfg &getGroupCfg() const {
         return groupCfg;
     }
 
-    void setGroupCfg(const GroupCfg &groupCfg) {
+    virtual void setGroupCfg(const GroupCfg &groupCfg) {
         Storage::groupCfg = groupCfg;
     }
 
-    const jraft::Storage::RaftConfig &getRaftConfig() const {
+    virtual const jraft::Storage::RaftConfig &getRaftConfig() const {
         return raftConfig;
     }
 
-    void setRaftConfig(const jraft::Storage::RaftConfig &raftConfig) {
+    virtual void setRaftConfig(const jraft::Storage::RaftConfig &raftConfig) {
         Storage::raftConfig = raftConfig;
     }
 
-    shared_ptr<jraft::Storage::Log> getRaftLog(int logIndex) {
+    virtual shared_ptr<jraft::Storage::Log> getRaftLog(int logIndex) {
         if (logIndex <= 0) {
             return NULL;
         }
@@ -50,7 +52,7 @@ public:
         return NULL;
     }
 
-    int setRaftLog(jraft::Storage::Log &log, int index) {
+    virtual int setRaftLog(jraft::Storage::Log &log, int index) {
         if (index < raftLogArray.size()) {
             raftLogArray[index] = log;
         } else {
