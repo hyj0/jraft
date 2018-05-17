@@ -14,15 +14,14 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR} ${PROTOBUF_INCLUDE_DIRS}
         ${PROJECT_SOURCE_DIR}/third_party/libco
         ${PROJECT_SOURCE_DIR}/third_party/pb2json/byReflection
         ${PROJECT_SOURCE_DIR}/third_party/leveldb/include/)
-link_directories(${PROJECT_SOURCE_DIR}/third_party/leveldb/out-static/)
 
 set(SRC main.cpp Config.cpp Network.cpp RaftMachine.cpp Storage.cpp Log.cpp Log.h Common.cpp Common.h Utils.cpp Utils.h Storage_leveldb.cpp Storage_leveldb.h)
 
 add_executable(main ${SRC} ${PROTO_SRC} ${PROTO_HEADER})
 target_link_libraries(main colib_static json11  pb2json protobuf leveldb)
 
-#add_executable(Test Test.cpp Utils.cpp)
-#target_link_libraries(Test colib_static json11  pb2json protobuf)
+#add_executable(Test Test.cpp Utils.cpp  ${PROTO_SRC} ${PROTO_HEADER} Storage.cpp Storage_leveldb.cpp)
+#target_link_libraries(Test colib_static json11  pb2json protobuf leveldb)
 
 add_executable(Client Client.cpp Network.cpp ${PROTO_SRC} ${PROTO_HEADER})
 target_link_libraries(Client colib_static json11 pb2json protobuf)
