@@ -95,7 +95,7 @@ int RaftMachine::followerProcess() {
                         jraft::Storage::LogEntry *entry = log.mutable_log_entry();
                         entry->set_action(rpcReq->log_entrys(0).action());
                         entry->set_key(rpcReq->log_entrys(0).key());
-                        entry->set_key(rpcReq->log_entrys(0).value());
+                        entry->set_value(rpcReq->log_entrys(0).value());
                         storage->setRaftLog(log, rpcReq->prev_log_index() + 1);
                         raftConfig.set_last_applied(rpcReq->prev_log_index()+1);
                         LOG_COUT << g_raftStatusNameMap[raftStatus]
@@ -138,6 +138,34 @@ int RaftMachine::followerProcess() {
                 cliRes->set_leader_id(leader_id);
                 cliRes->set_commit_index(raftConfig.commit_index());
                 cliRes->set_last_log_index(raftConfig.last_applied());
+
+                jraft::Network::CliReq *cliReq = recvMsg->mutable_cli_request();
+                switch (cliReq->request_type()) {
+                    case 2:
+                    {
+                        if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.last_applied()) {
+                            cliRes->set_result(3);
+                            cliRes->set_err_msg("log_index err");
+                            break;
+                        }
+                        shared_ptr<jraft::Storage::Log> entryLog = storage->getRaftLog(cliReq->log_index());
+                        cliRes->mutable_log_entry()->set_action(entryLog->mutable_log_entry()->action());
+                        cliRes->mutable_log_entry()->set_key(entryLog->mutable_log_entry()->key());
+                        cliRes->mutable_log_entry()->set_value(entryLog->mutable_log_entry()->value());
+
+                        if (cliReq->log_index() <= raftConfig.commit_index()) {
+                            cliRes->set_key_state(1);
+                        } else {
+                            cliRes->set_key_state(2);
+                        }
+                        break;
+                    }
+                    default:
+                        cliRes->set_result(4);
+                        cliRes->set_err_msg("request_type err");
+                        break;
+                }
+
                 network->sendMsg(*addressMsgPair->first.get(), msg);
                 break;
             }
@@ -274,6 +302,34 @@ int RaftMachine::candidaterProcess() {
                     cliRes->set_raft_state(raftStatus);
                     cliRes->set_commit_index(raftConfig.commit_index());
                     cliRes->set_last_log_index(raftConfig.last_applied());
+
+                    jraft::Network::CliReq *cliReq = recvMsg->mutable_cli_request();
+                    switch (cliReq->request_type()) {
+                        case 2:
+                        {
+                            if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.last_applied()) {
+                                cliRes->set_result(3);
+                                cliRes->set_err_msg("log_index err");
+                                break;
+                            }
+                            shared_ptr<jraft::Storage::Log> entryLog = storage->getRaftLog(cliReq->log_index());
+                            cliRes->mutable_log_entry()->set_action(entryLog->mutable_log_entry()->action());
+                            cliRes->mutable_log_entry()->set_key(entryLog->mutable_log_entry()->key());
+                            cliRes->mutable_log_entry()->set_value(entryLog->mutable_log_entry()->value());
+
+                            if (cliReq->log_index() <= raftConfig.commit_index()) {
+                                cliRes->set_key_state(1);
+                            } else {
+                                cliRes->set_key_state(2);
+                            }
+                            break;
+                        }
+                        default:
+                            cliRes->set_result(4);
+                            cliRes->set_err_msg("request_type err");
+                            break;
+                    }
+
                     network->sendMsg(*addressMsgPair->first.get(), msg);
                     break;
                 }

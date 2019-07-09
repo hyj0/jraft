@@ -91,7 +91,7 @@ public:
             Pb2Json::Json2Message(json, *log.get(), true);
             return log;
         } else {
-            LOG_COUT << "get err:" << status.ToString() << LOG_ENDL;
+            LOG_COUT << "get log index=" << logIndex << " err:" << status.ToString() << LOG_ENDL;
             return shared_ptr<jraft::Storage::Log>();
         }
     }
