@@ -417,7 +417,7 @@ int RaftMachine::leaderProcess() {
 
                         jraft::Network::Msg msg;
                         msg.set_group_id(groupCfg->getGroupId());
-                        msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Rpc_Request);
+                        msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Vote_Response);
                         jraft::Network::VoteRes *voteResMsg = msg.mutable_vote_response();
                         voteResMsg->set_term(raftConfig.current_term());
                         voteResMsg->set_granted(result);
