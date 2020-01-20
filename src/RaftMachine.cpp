@@ -37,143 +37,158 @@ int RaftMachine::followerProcess() {
                  << " status:" << g_raftStatusNameMap[raftStatus]
                  << " pid=" << Utils::getPid()  << LOG_ENDL;
 
-        shared_ptr<pair<shared_ptr<pair<string, int>>, shared_ptr<jraft::Network::Msg>>> addressMsgPair;
-        addressMsgPair = network->waitMsgTimeOut(Utils::randint(1000*6, 1000*9));
-        if (addressMsgPair == NULL) {
-            /*time out*/
-            LOG_COUT << "groupId=" << groupCfg->getGroupId() << " wait time out!" << LOG_ENDL;
-            changeRaftStat(RAFT_STAT_CANDIDATER);
-            return 0;
-        }
-        shared_ptr<jraft::Network::Msg> &recvMsg = addressMsgPair->second;
-        switch (recvMsg->msg_type()) {
-            case jraft::Network::MsgType::MSG_Type_Vote_Request:
-            {
-                bool result = false;
-                jraft::Network::VoteReq *voteReqMsg = recvMsg->mutable_vote_request();
-                if (voteReqMsg->term() < raftConfig.current_term()) {
-                    result = false;
-                } else if ((raftConfig.votefor() == VOTEFOR_NULL
-                            || raftConfig.votefor() == voteReqMsg->candidate_id())
-                        && raftConfig.last_applied() <= voteReqMsg->last_log_index()) {
-                    raftConfig.set_current_term(voteReqMsg->term());
-                    raftConfig.set_votefor(voteReqMsg->candidate_id());
-                    storage->setRaftConfig(raftConfig);
-                    result = true;
-                }
-
-                jraft::Network::Msg msg;
-                msg.set_group_id(groupCfg->getGroupId());
-                msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Vote_Response);
-                jraft::Network::VoteRes *voteResMsg = msg.mutable_vote_response();
-                voteResMsg->set_term(raftConfig.current_term());
-                voteResMsg->set_granted(result);
-
-                network->sendMsg(*addressMsgPair->first.get(), msg);
-                if (result) {
-                    //restart timer
-                    continue;
-                }
+        Timer timer(Utils::randint(1000*4, 1000*6));
+        while (timer.hasRemainTime()) {
+            int timeout_ms = timer.getRemainTime();
+            if (timeout_ms < 0) {
+                LOG_COUT << "Timer bug here" << LOG_ENDL;
                 break;
             }
-            case jraft::Network::MsgType::MSG_Type_Rpc_Request:
-            {
-                /*todo;follower rpc request*/
-                bool result = true;
-                jraft::Network::RpcReq *rpcReq = recvMsg->mutable_rpc_request();
-                if (rpcReq->term() < raftConfig.current_term()
+            shared_ptr<pair<shared_ptr<pair<string, int>>, shared_ptr<jraft::Network::Msg>>> addressMsgPair;
+            addressMsgPair = network->waitMsgTimeOut(timeout_ms);
+            if (addressMsgPair == NULL) {
+                /*time out*/
+                LOG_COUT << "groupId=" << groupCfg->getGroupId() << " wait time out!" << LOG_ENDL;
+                changeRaftStat(RAFT_STAT_CANDIDATER);
+                return 0;
+            }
+            shared_ptr<jraft::Network::Msg> &recvMsg = addressMsgPair->second;
+            switch (recvMsg->msg_type()) {
+                case jraft::Network::MsgType::MSG_Type_Vote_Request:
+                {
+                    bool result = false;
+                    jraft::Network::VoteReq *voteReqMsg = recvMsg->mutable_vote_request();
+                    if (voteReqMsg->term() < raftConfig.current_term()) {
+                        result = false;
+                    } else if ((raftConfig.votefor() == VOTEFOR_NULL
+                                || raftConfig.votefor() == voteReqMsg->candidate_id())
+                               && raftConfig.last_applied() <= voteReqMsg->last_log_index()) {
+                        raftConfig.set_current_term(voteReqMsg->term());
+                        raftConfig.set_votefor(voteReqMsg->candidate_id());
+                        storage->setRaftConfig(raftConfig);
+                        result = true;
+                    }
+
+                    jraft::Network::Msg msg;
+                    msg.set_group_id(groupCfg->getGroupId());
+                    msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Vote_Response);
+                    jraft::Network::VoteRes *voteResMsg = msg.mutable_vote_response();
+                    voteResMsg->set_term(raftConfig.current_term());
+                    voteResMsg->set_granted(result);
+
+                    network->sendMsg(*addressMsgPair->first.get(), msg);
+                    if (result) {
+                        //restart timer
+                        continue;
+                    }
+                    break;
+                }
+                case jraft::Network::MsgType::MSG_Type_Rpc_Request:
+                {
+                    /*todo;follower rpc request*/
+                    bool result = true;
+                    jraft::Network::RpcReq *rpcReq = recvMsg->mutable_rpc_request();
+                    if (rpcReq->term() < raftConfig.current_term()
                         /*todo:compare prelogIndex and term 5.3*/) {
-                    result = false;
-                } else {
-                    Pb2Json::Json json;
-                    Pb2Json::Message2Json(*recvMsg.get(), json);
-                    LOG_COUT << "rpcReq:" << json.dump() << LOG_ENDL;
-                    if (rpcReq->log_entrys_size() != 0) {
-                        jraft::Storage::Log log;
-                        log.set_log_index(rpcReq->prev_log_index()+1);
-                        log.set_term(rpcReq->term());
-                        jraft::Storage::LogEntry *entry = log.mutable_log_entry();
-                        entry->set_action(rpcReq->log_entrys(0).action());
-                        entry->set_key(rpcReq->log_entrys(0).key());
-                        entry->set_value(rpcReq->log_entrys(0).value());
-                        storage->setRaftLog(log, rpcReq->prev_log_index() + 1);
-                        raftConfig.set_last_applied(rpcReq->prev_log_index()+1);
-                        LOG_COUT << g_raftStatusNameMap[raftStatus]
-                                 << " apply log !"
-                                 <<" lastApplyId=" << raftConfig.last_applied() << LOG_ENDL;
+                        result = false;
+                    } else {
+                        Pb2Json::Json json;
+                        Pb2Json::Message2Json(*recvMsg.get(), json);
+                        LOG_COUT << "rpcReq:" << json.dump() << LOG_ENDL;
+                        if (rpcReq->log_entrys_size() != 0) {
+                            jraft::Storage::Log log;
+                            log.set_log_index(rpcReq->prev_log_index()+1);
+                            log.set_term(rpcReq->term());
+                            jraft::Storage::LogEntry *entry = log.mutable_log_entry();
+                            entry->set_action(rpcReq->log_entrys(0).action());
+                            entry->set_key(rpcReq->log_entrys(0).key());
+                            entry->set_value(rpcReq->log_entrys(0).value());
+                            storage->setRaftLog(log, rpcReq->prev_log_index() + 1);
+                            raftConfig.set_last_applied(rpcReq->prev_log_index()+1);
+                            LOG_COUT << g_raftStatusNameMap[raftStatus]
+                                     << " apply log !"
+                                     <<" lastApplyId=" << raftConfig.last_applied() << LOG_ENDL;
+                        }
+
+                        if (rpcReq->leader_commit() > raftConfig.commit_index()) {
+                            raftConfig.set_commit_index(
+                                    rpcReq->prev_log_index() > rpcReq->leader_commit() ? rpcReq->leader_commit()
+                                                                                       : rpcReq->prev_log_index());
+                        }
+                        result = true;
+                        this->leader_id = rpcReq->leader_id();
                     }
 
-                    if (rpcReq->leader_commit() > raftConfig.commit_index()) {
-                        raftConfig.set_commit_index(
-                                rpcReq->prev_log_index() > rpcReq->leader_commit() ? rpcReq->leader_commit()
-                                                                                   : rpcReq->prev_log_index());
+                    if (rpcReq->term() > raftConfig.current_term()) {
+                        raftConfig.set_current_term(rpcReq->term());
                     }
-                    result = true;
-                    this->leader_id = rpcReq->leader_id();
+                    storage->setRaftConfig(raftConfig);
+
+                    jraft::Network::Msg msg;
+                    msg.set_group_id(groupCfg->getGroupId());
+                    msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Rpc_Response);
+                    jraft::Network::RpcRes *rpcRes = msg.mutable_rpc_response();
+                    rpcRes->set_term(raftConfig.current_term());
+                    rpcRes->set_success(result);
+                    rpcRes->set_match_index(raftConfig.last_applied());
+                    network->sendMsg(*addressMsgPair->first.get(), msg);
+                    if (result) {
+                        timer.resetTime(Utils::randint(1000*4, 1000*6));
+                    }
+                    break;
                 }
+                case jraft::Network::MsgType::MSG_Type_Cli_Request:
+                {
+                    jraft::Network::Msg msg;
+                    msg.set_group_id(groupCfg->getGroupId());
+                    msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Cli_Response);
+                    jraft::Network::CliRes *cliRes = msg.mutable_cli_response();
+                    cliRes->set_result(1);
+                    cliRes->set_raft_state(raftStatus);
+                    cliRes->set_leader_id(leader_id);
+                    cliRes->set_commit_index(raftConfig.commit_index());
+                    cliRes->set_last_log_index(raftConfig.last_applied());
 
-                if (rpcReq->term() > raftConfig.current_term()) {
-                    raftConfig.set_current_term(rpcReq->term());
-                }
-                storage->setRaftConfig(raftConfig);
+                    jraft::Network::CliReq *cliReq = recvMsg->mutable_cli_request();
+                    switch (cliReq->request_type()) {
+                        case 2:
+                        {
+                            if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.last_applied()) {
+                                cliRes->set_result(3);
+                                cliRes->set_err_msg("log_index err");
+                                break;
+                            }
+                            shared_ptr<jraft::Storage::Log> entryLog = storage->getRaftLog(cliReq->log_index());
+                            cliRes->mutable_log_entry()->set_action(entryLog->mutable_log_entry()->action());
+                            cliRes->mutable_log_entry()->set_key(entryLog->mutable_log_entry()->key());
+                            cliRes->mutable_log_entry()->set_value(entryLog->mutable_log_entry()->value());
 
-                jraft::Network::Msg msg;
-                msg.set_group_id(groupCfg->getGroupId());
-                msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Rpc_Response);
-                jraft::Network::RpcRes *rpcRes = msg.mutable_rpc_response();
-                rpcRes->set_term(raftConfig.current_term());
-                rpcRes->set_success(result);
-                rpcRes->set_match_index(raftConfig.last_applied());
-                network->sendMsg(*addressMsgPair->first.get(), msg);
-                break;
-            }
-            case jraft::Network::MsgType::MSG_Type_Cli_Request:
-            {
-                jraft::Network::Msg msg;
-                msg.set_group_id(groupCfg->getGroupId());
-                msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Cli_Response);
-                jraft::Network::CliRes *cliRes = msg.mutable_cli_response();
-                cliRes->set_result(1);
-                cliRes->set_raft_state(raftStatus);
-                cliRes->set_leader_id(leader_id);
-                cliRes->set_commit_index(raftConfig.commit_index());
-                cliRes->set_last_log_index(raftConfig.last_applied());
-
-                jraft::Network::CliReq *cliReq = recvMsg->mutable_cli_request();
-                switch (cliReq->request_type()) {
-                    case 2:
-                    {
-                        if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.last_applied()) {
-                            cliRes->set_result(3);
-                            cliRes->set_err_msg("log_index err");
+                            if (cliReq->log_index() <= raftConfig.commit_index()) {
+                                cliRes->set_key_state(1);
+                            } else {
+                                cliRes->set_key_state(2);
+                            }
                             break;
                         }
-                        shared_ptr<jraft::Storage::Log> entryLog = storage->getRaftLog(cliReq->log_index());
-                        cliRes->mutable_log_entry()->set_action(entryLog->mutable_log_entry()->action());
-                        cliRes->mutable_log_entry()->set_key(entryLog->mutable_log_entry()->key());
-                        cliRes->mutable_log_entry()->set_value(entryLog->mutable_log_entry()->value());
-
-                        if (cliReq->log_index() <= raftConfig.commit_index()) {
-                            cliRes->set_key_state(1);
-                        } else {
-                            cliRes->set_key_state(2);
-                        }
-                        break;
+                        default:
+                            cliRes->set_result(4);
+                            cliRes->set_err_msg("request_type err");
+                            break;
                     }
-                    default:
-                        cliRes->set_result(4);
-                        cliRes->set_err_msg("request_type err");
-                        break;
-                }
 
-                network->sendMsg(*addressMsgPair->first.get(), msg);
-                break;
+                    network->sendMsg(*addressMsgPair->first.get(), msg);
+                    break;
+                }
+                default:
+                    LOG_COUT << "groupId=" << groupCfg->getGroupId() << " " << g_raftStatusNameMap[raftStatus]
+                             << " recv MsgType err msgType=" << recvMsg->msg_type() << LOG_ENDL;
+                    break;
             }
-            default:
-                LOG_COUT << "groupId=" << groupCfg->getGroupId() << " " << g_raftStatusNameMap[raftStatus]
-                         << " recv MsgType err msgType=" << recvMsg->msg_type() << LOG_ENDL;
-                break;
         }
+        /*time out*/
+        LOG_COUT << "groupId=" << groupCfg->getGroupId() << " wait time out!" << LOG_ENDL;
+        changeRaftStat(RAFT_STAT_CANDIDATER);
+        return 0;
     }
 }
 
@@ -204,7 +219,7 @@ int RaftMachine::candidaterProcess() {
             network->sendMsg(groupCfg->getNodes()[i], msg);
         }
 
-        Timer timer(Utils::randint(1000*6, 1000*9));
+        Timer timer(Utils::randint(1000*4, 1000*6));
         while (timer.hasRemainTime()) {
             int timeout_ms = timer.getRemainTime();
             if (timeout_ms < 0) {
@@ -432,7 +447,7 @@ int RaftMachine::leaderProcess() {
 
                         jraft::Network::CliReq *cliReq = recvMsg->mutable_cli_request();
                         switch (cliReq->request_type()) {
-                            case 1:
+                            case 1: //set index key value
                             {
                                 if (cliReq->log_index() != raftConfig.last_applied() + 1) {
                                     cliRes->set_result(3);
@@ -456,6 +471,8 @@ int RaftMachine::leaderProcess() {
                                 raftConfig.set_last_applied(raftConfig.last_applied() + 1);
                                 storage->setRaftConfig(raftConfig);
                                 storage->setRaftLog(configLog, raftConfig.last_applied());
+                                //立即触发发送日志
+                                timer.resetTime(0);
                                 break;
                             }
                             case 2:

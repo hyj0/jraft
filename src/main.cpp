@@ -61,7 +61,9 @@ void *mainCoroutine(void *arg)
         shared_ptr<jraft::Network::Msg> recvMsg = make_shared<jraft::Network::Msg>();
         Pb2Json::Json2Message(json, *recvMsg.get(), true);
 
-        LOG_COUT << "recvfrom " << RaftMachine::pair2NodeId(Network::address2pair(shared_ptr<sockaddr_in>(&cliAddr)).get())
+        sockaddr_in *cliAddr1 = new sockaddr_in();
+        memcpy(cliAddr1, &cliAddr, sizeof(sockaddr_in));
+        LOG_COUT << "recvfrom " << RaftMachine::pair2NodeId(Network::address2pair(shared_ptr<sockaddr_in>(cliAddr1)).get())
                  << " groupId=" << recvMsg->group_id()
                  << " msg=" << json.dump() << LOG_ENDL;
         if (recvMsg->msg_type() == jraft::Network::MsgType::MSG_Type_Rpc_Request) {

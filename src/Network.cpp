@@ -4,7 +4,10 @@
 #include <iostream>
 #include <sys/socket.h>
 #include <asm/byteorder.h>
+#ifdef __CYGWIN__
 #include <cygwin/in.h>
+#else
+#endif
 #include <unistd.h>
 #include <fcntl.h>
 #include "Network.h"

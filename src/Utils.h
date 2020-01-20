@@ -12,6 +12,9 @@
 class Utils {
 public:
     static int randint(int min, int max) {
+        if (max == min) {
+            return max;
+        }
         int ret = rand() % (max - min);
         ret = ret + min;
         return ret;
@@ -42,6 +45,12 @@ public:
 
     bool hasRemainTime() {
         return getRemainTime() > 0;
+    }
+
+    int resetTime(int delay_ms) {
+        timeval tv;
+        gettimeofday(&tv, NULL);
+        endTime_ms = tv.tv_sec*1000+tv.tv_usec/1000 + delay_ms;
     }
 };
 
