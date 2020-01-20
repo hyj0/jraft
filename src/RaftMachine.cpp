@@ -58,15 +58,16 @@ int RaftMachine::followerProcess() {
                 {
                     bool result = false;
                     jraft::Network::VoteReq *voteReqMsg = recvMsg->mutable_vote_request();
-                    if (voteReqMsg->term() < raftConfig.current_term()) {
+                    if (voteReqMsg->term() <= raftConfig.current_term()) {
                         result = false;
-                    } else if ((raftConfig.votefor() == VOTEFOR_NULL
-                                || raftConfig.votefor() == voteReqMsg->candidate_id())
-                               && raftConfig.max_log_index() <= voteReqMsg->last_log_index()) {
+                    } else  {
                         raftConfig.set_current_term(voteReqMsg->term());
-                        raftConfig.set_votefor(voteReqMsg->candidate_id());
-                        storage->setRaftConfig(raftConfig);
-                        result = true;
+                        raftConfig.set_votefor(VOTEFOR_NULL);
+                        if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()
+                            && voteReqMsg->last_log_term() >= getLastLogTerm()) {
+                            raftConfig.set_votefor(voteReqMsg->candidate_id());
+                            result = true;
+                        }
                     }
 
                     jraft::Network::Msg msg;
@@ -79,6 +80,7 @@ int RaftMachine::followerProcess() {
                     network->sendMsg(*addressMsgPair->first.get(), msg);
                     if (result) {
                         //restart timer
+                        timer.resetTime(Utils::randint(1000*4, 1000*6));
                         continue;
                     }
                     break;
@@ -244,10 +246,11 @@ int RaftMachine::candidaterProcess() {
                         /*todo: reset vote??? */
                         voteCount = 0;
                         changeRaftStat(RAFT_STAT_FOLLOWER);
-                        break;
+                        return 0;
                     }
 
-                    if (voteResponse->granted()) {
+                    if (voteResponse->granted()
+                        && voteResponse->term() == raftConfig.current_term()) {
                         voteCount += 1;
                         if (voteCount >= ((groupCfg->getNodes().size() + 1)/2+1)) {
                             LOG_COUT << "groupId=" << groupCfg->getGroupId() <<  " I am Leader !!!" << LOG_ENDL;
@@ -267,12 +270,20 @@ int RaftMachine::candidaterProcess() {
                 {
                     bool result = false;
                     jraft::Network::VoteReq *voteReqMsg = recvMsg->mutable_vote_request();
+                    /*
+                     * 接收者实现：
+                        如果term < currentTerm返回 false （5.2 节）
+                        如果 votedFor 为空或者为 candidateId，并且候选人的日志至少和自己一样新，那么就投票给他（5.2 节，5.4 节）
+                    */
+                    //每一轮只能投给一个选举人, voteReqMsg->term() == raftConfig.current_term()的情况不投(和论文有差异), 因为到这里会先投给自己, 所以一定不可能投改其他人
+                    //有一个场景:原先自己current_term=1, 先投给了term(2), set_current_term=2,  然后马上又有一个term(3), 也符合条件, 也投了, 这里应该是安全的, 因为term(3)返回去会迫使term(2)跟随
                     if (voteReqMsg->term() <= raftConfig.current_term()) {
                         result = false;
                     } else {
                         raftConfig.set_current_term(voteReqMsg->term());
                         raftConfig.set_votefor(VOTEFOR_NULL);
-                        if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()) {
+                        if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()
+                            && voteReqMsg->last_log_term() >= getLastLogTerm()) {
                             raftConfig.set_votefor(voteReqMsg->candidate_id());
                             result = true;
                         }
@@ -394,9 +405,11 @@ int RaftMachine::leaderProcess() {
                             result = false;
                         } else {
                             raftConfig.set_current_term(voteReqMsg->term());
-                            raftConfig.set_votefor(voteReqMsg->candidate_id());
-                            if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()) {
-                            result = true;
+                            raftConfig.set_votefor(VOTEFOR_NULL);
+                            if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()
+                                && voteReqMsg->last_log_term() >= getLastLogTerm()) {
+                                raftConfig.set_votefor(voteReqMsg->candidate_id());
+                                result = true;
                             }
                             need2Follower = true;
                         }
