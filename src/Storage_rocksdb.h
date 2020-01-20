@@ -1,35 +1,30 @@
 //
-// Created by dell-pc on 2018/5/14.
+// Created by hyj on 2020-01-20.
 //
 
-#ifndef PROJECT_STORAGE_LEVELDB_H
-#define PROJECT_STORAGE_LEVELDB_H
+#ifndef PROJECT_STORAGE_ROCKSDB_H
+#define PROJECT_STORAGE_ROCKSDB_H
 
-#include <iostream>
-#include <sstream>
+
 #include "Storage.h"
-#include "leveldb/db.h"
-#include "Log.h"
+#include <rocksdb/db.h>
 #include "pb2json.h"
 #include "RaftMachine.h"
 
-using namespace std;
-using namespace leveldb;
-
-class Storage_leveldb:public Storage {
+class Storage_rocksdb:public Storage {
 private:
-    DB *db;
+    rocksdb::DB *db;
     string dbName;
     int dbStatus;
     string key_GroupCfg = "groupCfg";
     string key_RaftConfig = "RaftConfig";
     string key_RaftLog = "RaftLog_";
 public:
-    Storage_leveldb(string & storageName, string nodeId):Storage(storageName, nodeId) {
+    Storage_rocksdb(string & storageName, string nodeId):Storage(storageName, nodeId) {
         dbName = storageName + "_" + nodeId + ".db";
-        Options options;
+        rocksdb::Options options;
         options.create_if_missing = true;
-        Status status = DB::Open(options, dbName, &db);
+        rocksdb::Status status = rocksdb::DB::Open(options, dbName, &db);
         if (!status.ok()) {
             LOG_COUT << "open err:" << status.ToString() << LOG_ENDL;
             dbStatus = 1;
@@ -43,7 +38,7 @@ public:
         raftConfig.set_last_applied(0);
         raftConfig.set_last_log_term(0);
     }
-    ~Storage_leveldb() {
+    ~Storage_rocksdb() {
     }
 
     const GroupCfg &getGroupCfg() const override {
@@ -52,8 +47,8 @@ public:
 
     void setGroupCfg(const GroupCfg &groupCfg) override {
         string value = "keke";
-        Status status;
-        WriteOptions writeOptions = leveldb::WriteOptions();
+        rocksdb::Status status;
+        rocksdb::WriteOptions writeOptions = rocksdb::WriteOptions();
         writeOptions.sync = true;
         status = db->Put(writeOptions, key_GroupCfg, value);
         Storage::setGroupCfg(groupCfg);
@@ -61,7 +56,7 @@ public:
 
     const jraft::Storage::RaftConfig &getRaftConfig() const override {
         string strJson;
-        leveldb::Status status = db->Get(leveldb::ReadOptions(), key_RaftConfig, &strJson);
+        rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key_RaftConfig, &strJson);
         if (status.ok()) {
             jraft::Storage::RaftConfig msg;
             Pb2Json::Json  json = Pb2Json::Json::parse(strJson);
@@ -77,9 +72,9 @@ public:
     void setRaftConfig(const jraft::Storage::RaftConfig &raftConfig) override {
         Pb2Json::Json json;
         Pb2Json::Message2Json(raftConfig, json, true);
-        WriteOptions writeOptions = leveldb::WriteOptions();
+        rocksdb::WriteOptions writeOptions = rocksdb::WriteOptions();
         writeOptions.sync = true;
-        Status status = db->Put(writeOptions, key_RaftConfig, json.dump());
+        rocksdb::Status status = db->Put(writeOptions, key_RaftConfig, json.dump());
         if (!status.ok()) {
             LOG_COUT << "put err:" << LOG_ENDL;
         }
@@ -89,7 +84,7 @@ public:
     shared_ptr<jraft::Storage::Log> getRaftLog(int logIndex) override {
         shared_ptr<jraft::Storage::Log>  log = make_shared<jraft::Storage::Log>();
         string strJson;
-        leveldb::Status status = db->Get(leveldb::ReadOptions(), getRaftLogKey(logIndex), &strJson);
+        rocksdb::Status status = db->Get(rocksdb::ReadOptions(), getRaftLogKey(logIndex), &strJson);
         if (status.ok()) {
             Pb2Json::Json json = Pb2Json::Json::parse(strJson);
             Pb2Json::Json2Message(json, *log.get(), true);
@@ -103,9 +98,9 @@ public:
     int setRaftLog(jraft::Storage::Log &log, int index) override {
         Pb2Json::Json json;
         Pb2Json::Message2Json(log, json, true);
-        WriteOptions writeOptions = leveldb::WriteOptions();
+        rocksdb::WriteOptions writeOptions = rocksdb::WriteOptions();
         writeOptions.sync = true;
-        Status status = db->Put(writeOptions, getRaftLogKey(index), json.dump());
+        rocksdb::Status status = db->Put(writeOptions, getRaftLogKey(index), json.dump());
         if (!status.ok()) {
             LOG_COUT << "put err:" << LOG_ENDL;
             return -1;
@@ -121,4 +116,4 @@ public:
 };
 
 
-#endif //PROJECT_STORAGE_LEVELDB_H
+#endif //PROJECT_STORAGE_ROCKSDB_H

@@ -13,6 +13,7 @@
 #include "pb2json.h"
 #include "Utils.h"
 #include "Storage_leveldb.h"
+#include "Storage_rocksdb.h"
 
 using namespace std;
 
@@ -132,7 +133,7 @@ int main(int argc, char **argv)
         shared_ptr<GroupCfg> &oneGroup = groups[i];
         stringstream strNodeSpecBuf;
         strNodeSpecBuf << oneGroup->getGroupId() << "_" << selfnode->first << "_" << selfnode->second;
-        common->setStorage(new Storage_leveldb(const_cast<string &>(groups[i]->getStorage()),
+        common->setStorage(new Storage_rocksdb(const_cast<string &>(groups[i]->getStorage()),
                                                strNodeSpecBuf.str()));
         common->setNetwork(new Network(servFd));
         common->setGroupCfg(groups[i].get());
