@@ -214,7 +214,7 @@ int RaftMachine::candidaterProcess() {
             voteReq->set_term(raftConfig.current_term());
             voteReq->set_candidate_id(this->pair2NodeId(selfNode.get()));
             voteReq->set_last_log_index(raftConfig.max_log_index());
-            voteReq->set_last_log_term(raftConfig.last_log_term());
+            voteReq->set_last_log_term(getLastLogTerm());
 
             network->sendMsg(groupCfg->getNodes()[i], msg);
         }
@@ -396,7 +396,7 @@ int RaftMachine::leaderProcess() {
                             raftConfig.set_current_term(voteReqMsg->term());
                             raftConfig.set_votefor(voteReqMsg->candidate_id());
                             if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()) {
-                                result = true;
+                            result = true;
                             }
                             need2Follower = true;
                         }
@@ -547,7 +547,7 @@ int RaftMachine::leaderProcess() {
             pair<string, int> nodeId = groupCfg->getNodes()[i];
             int nodeNextId = nodesLogInfo->getNextIndex(pair2NodeId(nodeId));
             rpcReq->set_prev_log_index(nodeNextId-1);
-            rpcReq->set_prev_log_term(raftConfig.last_log_term());
+            rpcReq->set_prev_log_term(getLastLogTerm());
             rpcReq->set_leader_commit(raftConfig.commit_index());
 
             shared_ptr<jraft::Storage::Log> log = storage->getRaftLog(nodeNextId);
@@ -588,4 +588,13 @@ void RaftMachine::start() {
                 break;
         }
     }
+}
+
+int RaftMachine::getLastLogTerm() {
+    int max_log_index = raftConfig.max_log_index();
+    const shared_ptr<jraft::Storage::Log> &raftLog = storage->getRaftLog(max_log_index);
+    if (raftLog == nullptr) {
+        return 0;
+    }
+    return raftLog->term();
 }

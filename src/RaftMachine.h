@@ -61,6 +61,8 @@ public:
 
     static string pair2NodeId(pair<string, int> &pair);
 
+    int getLastLogTerm();
+
 };
 
 class NodesLogInfo{

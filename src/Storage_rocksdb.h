@@ -36,7 +36,7 @@ public:
         raftConfig.set_votefor(VOTEFOR_NULL);
         raftConfig.set_commit_index(0);
         raftConfig.set_max_log_index(0);
-        raftConfig.set_last_log_term(0);
+//        raftConfig.set_last_log_term(0);
     }
     ~Storage_rocksdb() {
     }
