@@ -100,8 +100,10 @@ int RaftMachine::followerProcess() {
                         Pb2Json::Message2Json(*recvMsg.get(), json);
                         LOG_COUT << "rpcReq:" << json.dump() << LOG_ENDL;
                         const shared_ptr<jraft::Storage::Log> &localPreLog = storage->getRaftLog(rpcReq->prev_log_index());
-                        if (localPreLog == nullptr
-                            || (localPreLog != nullptr && localPreLog->term() != rpcReq->prev_log_term())) {
+                        if ((localPreLog == nullptr
+                             || (localPreLog != nullptr && localPreLog->term() != rpcReq->prev_log_term()))
+                             && rpcReq->prev_log_index() != 0) {
+                            //rpcReq->prev_log_index() == 0 强行附加!!!
                             //todo:如果已经存在的日志条目和新的产生冲突（索引值相同但是任期号不同），删除这一条和之后所有的 （5.3 节）
                             LOG_COUT << "log not match index=" << rpcReq->prev_log_index() <<" "
                             << (localPreLog != nullptr ? localPreLog->term():-00) << " != " << rpcReq->prev_log_term() << LOG_ENDL;
@@ -491,6 +493,11 @@ int RaftMachine::leaderProcess() {
                                 raftConfig.set_commit_index(nodesLogInfo->getMaxCommitedId());
                             }
                             storage->setRaftConfig(raftConfig);
+                        }
+                        if (nodesLogInfo->getNextIndex(nodeId) != raftConfig.max_log_index()+1) {
+                            //加速日志复制
+                            LOG_COUT << " 加速日志复制  " << nodeId  <<  " " << nodesLogInfo->getNextIndex(nodeId) << " " << raftConfig.max_log_index() << LOG_ENDL;
+                            timer.resetTime(0);
                         }
                         break;
                     }
