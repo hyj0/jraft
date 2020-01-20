@@ -25,3 +25,6 @@ target_link_libraries(main colib_static json11  pb2json protobuf leveldb rocksdb
 
 add_executable(Client Client.cpp Network.cpp ${PROTO_SRC} ${PROTO_HEADER})
 target_link_libraries(Client colib_static json11 pb2json protobuf pthread dl)
+
+add_executable(dataTool dataTool.cpp ${SRC} ${PROTO_SRC} ${PROTO_HEADER})
+target_link_libraries(dataTool colib_static json11  pb2json protobuf leveldb rocksdb pthread dl)

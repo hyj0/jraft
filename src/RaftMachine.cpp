@@ -88,43 +88,74 @@ int RaftMachine::followerProcess() {
                 case jraft::Network::MsgType::MSG_Type_Rpc_Request:
                 {
                     /*todo;follower rpc request*/
+                    bool reset_timer = true;
                     bool result = true;
                     jraft::Network::RpcReq *rpcReq = recvMsg->mutable_rpc_request();
                     if (rpcReq->term() < raftConfig.current_term()
                         /*todo:compare prelogIndex and term 5.3*/) {
                         result = false;
+                        reset_timer = false;
                     } else {
                         Pb2Json::Json json;
                         Pb2Json::Message2Json(*recvMsg.get(), json);
                         LOG_COUT << "rpcReq:" << json.dump() << LOG_ENDL;
-                        if (rpcReq->log_entrys_size() != 0) {
-                            jraft::Storage::Log log;
-                            log.set_log_index(rpcReq->prev_log_index()+1);
-                            log.set_term(rpcReq->term());
-                            jraft::Storage::LogEntry *entry = log.mutable_log_entry();
-                            entry->set_action(rpcReq->log_entrys(0).action());
-                            entry->set_key(rpcReq->log_entrys(0).key());
-                            entry->set_value(rpcReq->log_entrys(0).value());
-                            storage->setRaftLog(log, rpcReq->prev_log_index() + 1);
-                            raftConfig.set_max_log_index(rpcReq->prev_log_index()+1);
-                            LOG_COUT << g_raftStatusNameMap[raftStatus]
-                                     << " apply log !"
-                                     <<" max_log_index=" << raftConfig.max_log_index() << LOG_ENDL;
-                        }
+                        const shared_ptr<jraft::Storage::Log> &localPreLog = storage->getRaftLog(rpcReq->prev_log_index());
+                        if (localPreLog == nullptr
+                            || (localPreLog != nullptr && localPreLog->term() != rpcReq->prev_log_term())) {
+                            //todo:如果已经存在的日志条目和新的产生冲突（索引值相同但是任期号不同），删除这一条和之后所有的 （5.3 节）
+                            LOG_COUT << "log not match index=" << rpcReq->prev_log_index() <<" "
+                            << (localPreLog != nullptr ? localPreLog->term():-00) << " != " << rpcReq->prev_log_term() << LOG_ENDL;
+                            result = false;
+                        } else {
+                            if (rpcReq->term() > raftConfig.current_term()) {
+                                raftConfig.set_current_term(rpcReq->term());
+                            }
 
-                        if (rpcReq->leader_commit() > raftConfig.commit_index()) {
-                            raftConfig.set_commit_index(
-                                    rpcReq->prev_log_index() > rpcReq->leader_commit() ? rpcReq->leader_commit()
-                                                                                       : rpcReq->prev_log_index());
+                            if (rpcReq->log_entrys_size() != 0) {
+                                //todo:支持多个log_entrys
+                                jraft::Storage::Log log;
+                                log.set_log_index(rpcReq->prev_log_index()+1);
+                                log.set_term(rpcReq->log_entrys(0).term());
+                                jraft::Storage::LogEntry *entry = log.mutable_log_entry();
+                                entry->set_action(rpcReq->log_entrys(0).action());
+                                entry->set_key(rpcReq->log_entrys(0).key());
+                                entry->set_value(rpcReq->log_entrys(0).value());
+                                storage->setRaftLog(log, rpcReq->prev_log_index() + 1);
+                                raftConfig.set_max_log_index(rpcReq->prev_log_index()+1);
+                                LOG_COUT << g_raftStatusNameMap[raftStatus]
+                                         << " append log !"
+                                         <<" max_log_index=" << raftConfig.max_log_index() << LOG_ENDL;
+                            }
+
+                            if (rpcReq->leader_commit() < raftConfig.commit_index()) {
+                                LOG_COUT << "leader_commit < follower_commit_index "
+                                << rpcReq->leader_commit() << "<" << raftConfig.commit_index() << LOG_ENDL;
+                                assert(0);
+                            }
+                            if (rpcReq->leader_commit() > raftConfig.commit_index()) {
+                                /*如果 leaderCommit > commitIndex，令 commitIndex 等于 leaderCommit 和 新日志条目索引值中较小的一个
+                                 */
+                                int new_commit_index = raftConfig.max_log_index() > rpcReq->leader_commit() ? rpcReq->leader_commit()
+                                                                                     : raftConfig.max_log_index();
+                                if (new_commit_index < raftConfig.commit_index()) {
+                                    LOG_COUT << "new_commit_index < raftConfig.commit_index() "
+                                             << new_commit_index << "<" << raftConfig.commit_index() << LOG_ENDL;
+                                    assert(0);
+                                }
+                                LOG_COUT << " update commit_index  "
+                                         << raftConfig.commit_index() << "-->" << new_commit_index << LOG_ENDL;
+                                raftConfig.set_commit_index(new_commit_index);
+                            }
+                            storage->setRaftConfig(raftConfig);
+                            result = true;
+                            this->leader_id = rpcReq->leader_id();
                         }
-                        result = true;
-                        this->leader_id = rpcReq->leader_id();
                     }
 
                     if (rpcReq->term() > raftConfig.current_term()) {
                         raftConfig.set_current_term(rpcReq->term());
+                        storage->setRaftConfig(raftConfig);
                     }
-                    storage->setRaftConfig(raftConfig);
 
                     jraft::Network::Msg msg;
                     msg.set_group_id(groupCfg->getGroupId());
@@ -132,9 +163,18 @@ int RaftMachine::followerProcess() {
                     jraft::Network::RpcRes *rpcRes = msg.mutable_rpc_response();
                     rpcRes->set_term(raftConfig.current_term());
                     rpcRes->set_success(result);
-                    rpcRes->set_match_index(raftConfig.max_log_index());
-                    network->sendMsg(*addressMsgPair->first.get(), msg);
+
                     if (result) {
+                        if (rpcReq->log_entrys_size()) {
+                            rpcRes->set_match_index(rpcReq->prev_log_index()+rpcReq->log_entrys_size());
+                        } else {
+                            rpcRes->set_match_index(rpcReq->prev_log_index());
+                        }
+                    } else {
+                        rpcRes->set_match_index(rpcReq->prev_log_index()-1);
+                    }
+                    network->sendMsg(*addressMsgPair->first.get(), msg);
+                    if (reset_timer) {
                         timer.resetTime(Utils::randint(1000*4, 1000*6));
                     }
                     break;
@@ -260,6 +300,7 @@ int RaftMachine::candidaterProcess() {
                                 nodeIds.push_back(pair2NodeId(
                                         const_cast<pair<string, int> *>(&groupCfg->getNodes()[i])));
                             }
+                            //nextIndex[] 	对于每一个服务器，需要发送给他的下一个日志条目的索引值（初始化为领导人最后索引值加一）
                             nodesLogInfo = make_shared<NodesLogInfo>(nodeIds, raftConfig.max_log_index() + 1);
                             return 0;
                         }
@@ -442,10 +483,15 @@ int RaftMachine::leaderProcess() {
                             return 0;
                         }
                         nodesLogInfo->setNextIndex(nodeId, rpcRes->match_index()+1);
-
-                        nodesLogInfo->setMatchIndex(nodeId, rpcRes->match_index());
-                        raftConfig.set_commit_index(nodesLogInfo->getMaxCommitedId());
-                        storage->setRaftConfig(raftConfig);
+                        if (rpcRes->success()) {
+                            //返回成功才可以更新
+                            nodesLogInfo->setMatchIndex(nodeId, rpcRes->match_index());
+                            if (nodesLogInfo->getMaxCommitedId() > raftConfig.commit_index()) {
+                                LOG_COUT << "update commit_index " << raftConfig.commit_index() << "-->" << nodesLogInfo->getMaxCommitedId() << LOG_ENDL;
+                                raftConfig.set_commit_index(nodesLogInfo->getMaxCommitedId());
+                            }
+                            storage->setRaftConfig(raftConfig);
+                        }
                         break;
                     }
                     case jraft::Network::MsgType::MSG_Type_Cli_Request:
@@ -560,7 +606,13 @@ int RaftMachine::leaderProcess() {
             pair<string, int> nodeId = groupCfg->getNodes()[i];
             int nodeNextId = nodesLogInfo->getNextIndex(pair2NodeId(nodeId));
             rpcReq->set_prev_log_index(nodeNextId-1);
-            rpcReq->set_prev_log_term(getLastLogTerm());
+            const shared_ptr<jraft::Storage::Log> &raftLog = storage->getRaftLog(nodeNextId - 1);
+            if (raftLog == nullptr) {
+                rpcReq->set_prev_log_term(0);
+            } else {
+                rpcReq->set_prev_log_term(raftLog->term());
+            }
+            
             rpcReq->set_leader_commit(raftConfig.commit_index());
 
             shared_ptr<jraft::Storage::Log> log = storage->getRaftLog(nodeNextId);
@@ -572,7 +624,7 @@ int RaftMachine::leaderProcess() {
                 logEntry->set_action(log->mutable_log_entry()->action());
                 logEntry->set_key(log->mutable_log_entry()->key());
                 logEntry->set_value(log->mutable_log_entry()->value());
-                rpcReq->set_prev_log_term(log->term());
+                logEntry->set_term(log->term());
             }
             network->sendMsg(groupCfg->getNodes()[i], msg);
         }
