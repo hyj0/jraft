@@ -62,7 +62,7 @@ int RaftMachine::followerProcess() {
                         result = false;
                     } else if ((raftConfig.votefor() == VOTEFOR_NULL
                                 || raftConfig.votefor() == voteReqMsg->candidate_id())
-                               && raftConfig.last_applied() <= voteReqMsg->last_log_index()) {
+                               && raftConfig.max_log_index() <= voteReqMsg->last_log_index()) {
                         raftConfig.set_current_term(voteReqMsg->term());
                         raftConfig.set_votefor(voteReqMsg->candidate_id());
                         storage->setRaftConfig(raftConfig);
@@ -104,10 +104,10 @@ int RaftMachine::followerProcess() {
                             entry->set_key(rpcReq->log_entrys(0).key());
                             entry->set_value(rpcReq->log_entrys(0).value());
                             storage->setRaftLog(log, rpcReq->prev_log_index() + 1);
-                            raftConfig.set_last_applied(rpcReq->prev_log_index()+1);
+                            raftConfig.set_max_log_index(rpcReq->prev_log_index()+1);
                             LOG_COUT << g_raftStatusNameMap[raftStatus]
                                      << " apply log !"
-                                     <<" lastApplyId=" << raftConfig.last_applied() << LOG_ENDL;
+                                     <<" max_log_index=" << raftConfig.max_log_index() << LOG_ENDL;
                         }
 
                         if (rpcReq->leader_commit() > raftConfig.commit_index()) {
@@ -130,7 +130,7 @@ int RaftMachine::followerProcess() {
                     jraft::Network::RpcRes *rpcRes = msg.mutable_rpc_response();
                     rpcRes->set_term(raftConfig.current_term());
                     rpcRes->set_success(result);
-                    rpcRes->set_match_index(raftConfig.last_applied());
+                    rpcRes->set_match_index(raftConfig.max_log_index());
                     network->sendMsg(*addressMsgPair->first.get(), msg);
                     if (result) {
                         timer.resetTime(Utils::randint(1000*4, 1000*6));
@@ -147,13 +147,13 @@ int RaftMachine::followerProcess() {
                     cliRes->set_raft_state(raftStatus);
                     cliRes->set_leader_id(leader_id);
                     cliRes->set_commit_index(raftConfig.commit_index());
-                    cliRes->set_last_log_index(raftConfig.last_applied());
+                    cliRes->set_last_log_index(raftConfig.max_log_index());
 
                     jraft::Network::CliReq *cliReq = recvMsg->mutable_cli_request();
                     switch (cliReq->request_type()) {
                         case 2:
                         {
-                            if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.last_applied()) {
+                            if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.max_log_index()) {
                                 cliRes->set_result(3);
                                 cliRes->set_err_msg("log_index err");
                                 break;
@@ -213,7 +213,7 @@ int RaftMachine::candidaterProcess() {
             jraft::Network::VoteReq *voteReq = msg.mutable_vote_request();
             voteReq->set_term(raftConfig.current_term());
             voteReq->set_candidate_id(this->pair2NodeId(selfNode.get()));
-            voteReq->set_last_log_index(raftConfig.last_applied());
+            voteReq->set_last_log_index(raftConfig.max_log_index());
             voteReq->set_last_log_term(raftConfig.last_log_term());
 
             network->sendMsg(groupCfg->getNodes()[i], msg);
@@ -257,7 +257,7 @@ int RaftMachine::candidaterProcess() {
                                 nodeIds.push_back(pair2NodeId(
                                         const_cast<pair<string, int> *>(&groupCfg->getNodes()[i])));
                             }
-                            nodesLogInfo = make_shared<NodesLogInfo>(nodeIds, raftConfig.last_applied() + 1);
+                            nodesLogInfo = make_shared<NodesLogInfo>(nodeIds, raftConfig.max_log_index() + 1);
                             return 0;
                         }
                     }
@@ -272,7 +272,7 @@ int RaftMachine::candidaterProcess() {
                     } else {
                         raftConfig.set_current_term(voteReqMsg->term());
                         raftConfig.set_votefor(VOTEFOR_NULL);
-                        if (voteReqMsg->last_log_index() >= raftConfig.last_applied()) {
+                        if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()) {
                             raftConfig.set_votefor(voteReqMsg->candidate_id());
                             result = true;
                         }
@@ -316,13 +316,13 @@ int RaftMachine::candidaterProcess() {
                     cliRes->set_result(1);
                     cliRes->set_raft_state(raftStatus);
                     cliRes->set_commit_index(raftConfig.commit_index());
-                    cliRes->set_last_log_index(raftConfig.last_applied());
+                    cliRes->set_last_log_index(raftConfig.max_log_index());
 
                     jraft::Network::CliReq *cliReq = recvMsg->mutable_cli_request();
                     switch (cliReq->request_type()) {
                         case 2:
                         {
-                            if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.last_applied()) {
+                            if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.max_log_index()) {
                                 cliRes->set_result(3);
                                 cliRes->set_err_msg("log_index err");
                                 break;
@@ -395,7 +395,7 @@ int RaftMachine::leaderProcess() {
                         } else {
                             raftConfig.set_current_term(voteReqMsg->term());
                             raftConfig.set_votefor(voteReqMsg->candidate_id());
-                            if (voteReqMsg->last_log_index() >= raftConfig.last_applied()) {
+                            if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()) {
                                 result = true;
                             }
                             need2Follower = true;
@@ -449,7 +449,7 @@ int RaftMachine::leaderProcess() {
                         switch (cliReq->request_type()) {
                             case 1: //set index key value
                             {
-                                if (cliReq->log_index() != raftConfig.last_applied() + 1) {
+                                if (cliReq->log_index() != raftConfig.max_log_index() + 1) {
                                     cliRes->set_result(3);
                                     cliRes->set_err_msg("logIndex err");
                                     break;
@@ -462,22 +462,22 @@ int RaftMachine::leaderProcess() {
                                 }
 
                                 jraft::Storage::Log configLog;
-                                configLog.set_log_index(raftConfig.last_applied() + 1);
+                                configLog.set_log_index(raftConfig.max_log_index() + 1);
                                 configLog.set_term(raftConfig.current_term());
                                 jraft::Storage::LogEntry *entry = configLog.mutable_log_entry();
                                 entry->set_action(cliReq->mutable_log_entry()->action());
                                 entry->set_key(cliReq->mutable_log_entry()->key());
                                 entry->set_value(cliReq->mutable_log_entry()->value());
-                                raftConfig.set_last_applied(raftConfig.last_applied() + 1);
+                                raftConfig.set_max_log_index(raftConfig.max_log_index() + 1);
                                 storage->setRaftConfig(raftConfig);
-                                storage->setRaftLog(configLog, raftConfig.last_applied());
+                                storage->setRaftLog(configLog, raftConfig.max_log_index());
                                 //立即触发发送日志
                                 timer.resetTime(0);
                                 break;
                             }
                             case 2:
                             {
-                                if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.last_applied()) {
+                                if (cliReq->log_index() < 1 || cliReq->log_index() > raftConfig.max_log_index()) {
                                     cliRes->set_result(3);
                                     cliRes->set_err_msg("log_index err");
                                     break;
@@ -504,7 +504,7 @@ int RaftMachine::leaderProcess() {
                                 break;
                         }
                         cliRes->set_commit_index(raftConfig.commit_index());
-                        cliRes->set_last_log_index(raftConfig.last_applied());
+                        cliRes->set_last_log_index(raftConfig.max_log_index());
                         network->sendMsg(*addressMsgPair->first.get(), msg);
                         break;
                     }
@@ -517,7 +517,7 @@ int RaftMachine::leaderProcess() {
         }
 
         /*add group config to log*/
-        if (raftConfig.last_applied() == 0) {
+        if (raftConfig.max_log_index() == 0) {
             jraft::Storage::Log configLog;
             configLog.set_log_index(0);
             configLog.set_term(raftConfig.current_term());
@@ -532,9 +532,9 @@ int RaftMachine::leaderProcess() {
             Pb2Json::Json json = nodesArray;
             LOG_COUT << "nodesJon=" << json.dump() << LOG_ENDL;
             entry->set_value(json.dump());
-            raftConfig.set_last_applied(raftConfig.last_applied() + 1);
+            raftConfig.set_max_log_index(raftConfig.max_log_index() + 1);
             storage->setRaftConfig(raftConfig);
-            storage->setRaftLog(configLog, raftConfig.last_applied());
+            storage->setRaftLog(configLog, raftConfig.max_log_index());
         }
 
         for (int i = 0; i < groupCfg->getNodes().size(); ++i) {

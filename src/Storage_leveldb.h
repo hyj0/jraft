@@ -40,7 +40,7 @@ public:
         raftConfig.set_current_term(0);
         raftConfig.set_votefor(VOTEFOR_NULL);
         raftConfig.set_commit_index(0);
-        raftConfig.set_last_applied(0);
+        raftConfig.set_max_log_index(0);
         raftConfig.set_last_log_term(0);
     }
     ~Storage_leveldb() {
