@@ -87,6 +87,9 @@ public:
     }
 
     shared_ptr<jraft::Storage::Log> getRaftLog(int logIndex) override {
+        if (logIndex > raftConfig.max_log_index()) {
+            return nullptr;
+        }
         shared_ptr<jraft::Storage::Log>  log = make_shared<jraft::Storage::Log>();
         string strJson;
         leveldb::Status status = db->Get(leveldb::ReadOptions(), getRaftLogKey(logIndex), &strJson);

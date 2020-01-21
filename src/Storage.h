@@ -40,6 +40,9 @@ public:
     }
 
     virtual shared_ptr<jraft::Storage::Log> getRaftLog(int logIndex) {
+        if (logIndex > raftConfig.max_log_index()) {
+            return nullptr;
+        }
         if (logIndex <= 0) {
             return NULL;
         }
