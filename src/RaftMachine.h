@@ -5,6 +5,7 @@
 #ifndef PROJECT_RAFTMACHINE_H
 #define PROJECT_RAFTMACHINE_H
 
+#include <algorithm>
 #include "Common.h"
 #define VOTEFOR_NULL string("NULL")
 
@@ -83,25 +84,32 @@ public:
         return matchIndex[node];
     }
 
-    void setMatchIndex(string &nodeId, int index) {
+    void setMatchIndex(string &nodeId, int index, string leaderNode, int leaderLogIndex) {
         if (matchIndex.find(nodeId) == matchIndex.end()) {
             LOG_COUT << "can not find nodeId! nodeId=" << nodeId << LOG_ENDL;
             return;
         }
         int count = 1;
         matchIndex[nodeId] = index;
-        for (auto &it : matchIndex) {
-            if (it.second == index) {
-                count += 1;
-                if (count > (matchIndex.size()+1)/2) {
-                    if (maxCommitedId < index) {
-                        LOG_COUT << "change max commit:" << maxCommitedId << "-->" << index << LOG_ENDL;
-                        maxCommitedId = index;
-                    }
-                    break;
-                }
-            }
+        matchIndex[leaderNode] = leaderLogIndex;
+        /*如果存在一个满足N > commitIndex的 N，并且大多数的matchIndex[i] ≥ N成立，
+         * 并且log[N].term == currentTerm成立，那么令 commitIndex 等于这个 N （5.3 和 5.4 节）
+         * 实现:对matchIndex排序(包含leader)倒排, 从大到小, 然后取matchIndex[size/2+1]的数据就是maxCommitedId,
+         * 比如 [6 5 4], maxCommitedId=5
+         */
+        vector<int> matchIndexVect;
+        for (auto it = matchIndex.begin();it != matchIndex.end(); ++it) {
+            matchIndexVect.push_back(it->second);
+//            LOG_COUT << "matchIndex " << it->first << "-->" << it->second << LOG_ENDL;
         }
+        sort(matchIndexVect.begin(), matchIndexVect.end(), std::greater<>());
+#if 0
+        for (int i = 0; i < matchIndexVect.size(); ++i) {
+            LOG_COUT << "matchIndexVect i=" <<i << " index=" << matchIndexVect[i] << LOG_ENDL;
+        }
+        LOG_COUT << "change max commit:" << maxCommitedId << "-->" << matchIndexVect[matchIndex.size()/2] << LOG_ENDL;
+#endif
+        maxCommitedId = matchIndexVect[matchIndex.size()/2];
     }
 
     int getNextIndex(string node) {

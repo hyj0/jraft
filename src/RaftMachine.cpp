@@ -107,6 +107,11 @@ int RaftMachine::followerProcess() {
                             //todo:如果已经存在的日志条目和新的产生冲突（索引值相同但是任期号不同），删除这一条和之后所有的 （5.3 节）
                             LOG_COUT << "log not match index=" << rpcReq->prev_log_index() <<" "
                             << (localPreLog != nullptr ? localPreLog->term():-00) << " != " << rpcReq->prev_log_term() << LOG_ENDL;
+                            //如果不一致的位置prev_log_index < raftConfig.commit_index, 说明有bug
+                            if (rpcReq->prev_log_index() < raftConfig.commit_index()) {
+                                LOG_COUT << "prev_log_index < raftConfig.commit_index !!! " << rpcReq->prev_log_index() << " < " << raftConfig.commit_index() << LOG_ENDL;
+                                assert(0);
+                            }
                             result = false;
                         } else {
                             if (rpcReq->term() > raftConfig.current_term()) {
@@ -487,7 +492,8 @@ int RaftMachine::leaderProcess() {
                         nodesLogInfo->setNextIndex(nodeId, rpcRes->match_index()+1);
                         if (rpcRes->success()) {
                             //返回成功才可以更新
-                            nodesLogInfo->setMatchIndex(nodeId, rpcRes->match_index());
+                            nodesLogInfo->setMatchIndex(nodeId, rpcRes->match_index(), this->pair2NodeId(*selfNode),
+                                                        raftConfig.max_log_index());
                             if (nodesLogInfo->getMaxCommitedId() > raftConfig.commit_index()) {
                                 LOG_COUT << "update commit_index " << raftConfig.commit_index() << "-->" << nodesLogInfo->getMaxCommitedId() << LOG_ENDL;
                                 raftConfig.set_commit_index(nodesLogInfo->getMaxCommitedId());
