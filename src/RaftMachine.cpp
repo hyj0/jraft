@@ -63,11 +63,25 @@ int RaftMachine::followerProcess() {
                     } else  {
                         raftConfig.set_current_term(voteReqMsg->term());
                         raftConfig.set_votefor(VOTEFOR_NULL);
-                        if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()
-                            && voteReqMsg->last_log_term() >= getLastLogTerm()) {
+                        if (voteReqMsg->last_log_term() != getLastLogTerm()) {
+                            if (voteReqMsg->last_log_term() > getLastLogTerm()) {
+                                result = true;
+                            } else {
+                                result = false;
+                            }
+                        } else {
+                            //last term相同
+                            if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()) {
+                                result = true;
+                            } else {
+                                result = false;
+                            }
+                        }
+                        if (result == true) {
                             raftConfig.set_votefor(voteReqMsg->candidate_id());
                             result = true;
                         }
+                        storage->setRaftConfig(raftConfig);
                     }
 
                     jraft::Network::Msg msg;
@@ -104,13 +118,17 @@ int RaftMachine::followerProcess() {
                              || (localPreLog != nullptr && localPreLog->term() != rpcReq->prev_log_term()))
                              && rpcReq->prev_log_index() != 0) {
                             //rpcReq->prev_log_index() == 0 强行附加!!!
-                            //todo:如果已经存在的日志条目和新的产生冲突（索引值相同但是任期号不同），删除这一条和之后所有的 （5.3 节）
                             LOG_COUT << "log not match index=" << rpcReq->prev_log_index() <<" "
                             << (localPreLog != nullptr ? localPreLog->term():-00) << " != " << rpcReq->prev_log_term() << LOG_ENDL;
                             //如果不一致的位置prev_log_index < raftConfig.commit_index, 说明有bug
                             if (rpcReq->prev_log_index() < raftConfig.commit_index()) {
                                 LOG_COUT << "prev_log_index < raftConfig.commit_index !!! " << rpcReq->prev_log_index() << " < " << raftConfig.commit_index() << LOG_ENDL;
                                 assert(0);
+                            }
+                            //todo:如果已经存在的日志条目和新的产生冲突（索引值相同但是任期号不同），删除这一条和之后所有的 （5.3 节）
+                            if (raftConfig.max_log_index() > rpcReq->prev_log_index()) {
+                                //删除就简单的设置max_log_index即可
+                                raftConfig.set_max_log_index(rpcReq->prev_log_index()-1);
                             }
                             result = false;
                         } else {
@@ -322,6 +340,9 @@ int RaftMachine::candidaterProcess() {
                      * 接收者实现：
                         如果term < currentTerm返回 false （5.2 节）
                         如果 votedFor 为空或者为 candidateId，并且候选人的日志至少和自己一样新，那么就投票给他（5.2 节，5.4 节）
+                        Raft 通过比较两份日志中最后一条日志条目的索引值和任期号定义谁的日志比较新。
+                        如果两份日志最后的条目的任期号不同，那么任期号大的日志更加新。
+                        如果两份日志最后的条目任期号相同，那么日志比较长的那个就更加新
                     */
                     //每一轮只能投给一个选举人, voteReqMsg->term() == raftConfig.current_term()的情况不投(和论文有差异), 因为到这里会先投给自己, 所以一定不可能投改其他人
                     //有一个场景:原先自己current_term=1, 先投给了term(2), set_current_term=2,  然后马上又有一个term(3), 也符合条件, 也投了, 这里应该是安全的, 因为term(3)返回去会迫使term(2)跟随
@@ -330,13 +351,26 @@ int RaftMachine::candidaterProcess() {
                     } else {
                         raftConfig.set_current_term(voteReqMsg->term());
                         raftConfig.set_votefor(VOTEFOR_NULL);
-                        if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()
-                            && voteReqMsg->last_log_term() >= getLastLogTerm()) {
+                        if (voteReqMsg->last_log_term() != getLastLogTerm()) {
+                            if (voteReqMsg->last_log_term() > getLastLogTerm()) {
+                                result = true;
+                            } else {
+                                result = false;
+                            }
+                        } else {
+                            //last term相同
+                            if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()) {
+                                result = true;
+                            } else {
+                                result = false;
+                            }
+                        }
+                        if (result == true) {
                             raftConfig.set_votefor(voteReqMsg->candidate_id());
                             result = true;
                         }
+                        storage->setRaftConfig(raftConfig);
                     }
-                    storage->setRaftConfig(raftConfig);
 
                     jraft::Network::Msg msg;
                     msg.set_group_id(groupCfg->getGroupId());
@@ -454,14 +488,27 @@ int RaftMachine::leaderProcess() {
                         } else {
                             raftConfig.set_current_term(voteReqMsg->term());
                             raftConfig.set_votefor(VOTEFOR_NULL);
-                            if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()
-                                && voteReqMsg->last_log_term() >= getLastLogTerm()) {
+                            if (voteReqMsg->last_log_term() != getLastLogTerm()) {
+                                if (voteReqMsg->last_log_term() > getLastLogTerm()) {
+                                    result = true;
+                                } else {
+                                    result = false;
+                                }
+                            } else {
+                                //last term相同
+                                if (voteReqMsg->last_log_index() >= raftConfig.max_log_index()) {
+                                    result = true;
+                                } else {
+                                    result = false;
+                                }
+                            }
+                            if (result == true) {
                                 raftConfig.set_votefor(voteReqMsg->candidate_id());
                                 result = true;
                             }
+                            storage->setRaftConfig(raftConfig);
                             need2Follower = true;
                         }
-                        storage->setRaftConfig(raftConfig);
 
                         jraft::Network::Msg msg;
                         msg.set_group_id(groupCfg->getGroupId());
@@ -628,16 +675,18 @@ int RaftMachine::leaderProcess() {
             
             rpcReq->set_leader_commit(raftConfig.commit_index());
 
-            shared_ptr<jraft::Storage::Log> log = storage->getRaftLog(nodeNextId);
-            if (log != NULL) {
-                Pb2Json::Json json;
-                Pb2Json::Message2Json(*log.get(), json);
-                LOG_COUT << "index=" << nodeNextId << " log=" << json.dump() << LOG_ENDL;
-                jraft::Network::LogEntry *logEntry = rpcReq->add_log_entrys();
-                logEntry->set_action(log->mutable_log_entry()->action());
-                logEntry->set_key(log->mutable_log_entry()->key());
-                logEntry->set_value(log->mutable_log_entry()->value());
-                logEntry->set_term(log->term());
+            if (nodeNextId <= raftConfig.max_log_index()) {
+                shared_ptr<jraft::Storage::Log> log = storage->getRaftLog(nodeNextId);
+                if (log != NULL) {
+                    Pb2Json::Json json;
+                    Pb2Json::Message2Json(*log.get(), json);
+                    LOG_COUT << "index=" << nodeNextId << " log=" << json.dump() << LOG_ENDL;
+                    jraft::Network::LogEntry *logEntry = rpcReq->add_log_entrys();
+                    logEntry->set_action(log->mutable_log_entry()->action());
+                    logEntry->set_key(log->mutable_log_entry()->key());
+                    logEntry->set_value(log->mutable_log_entry()->value());
+                    logEntry->set_term(log->term());
+                }
             }
             network->sendMsg(groupCfg->getNodes()[i], msg);
         }
