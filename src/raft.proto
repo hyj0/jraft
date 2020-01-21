@@ -18,6 +18,7 @@ message LogEntry {
     optional string key = 2;
     optional string value = 3;
     optional int32 term = 4;//当前log term
+    optional int32 index = 5;//当前log index
 }
 
 message RpcReq {

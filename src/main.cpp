@@ -46,12 +46,12 @@ void *mainCoroutine(void *arg)
             continue;
         }
 
-        char buff[1000];
+        char buff[1000*4];
         memset(buff, 0, sizeof(buff));
         struct sockaddr_in cliAddr;
         socklen_t cliAddrLen;
         cliAddrLen = sizeof(cliAddr);
-        ret = recvfrom(servFd, buff, 1000, 0, (struct sockaddr *) (&cliAddr), &cliAddrLen);
+        ret = recvfrom(servFd, buff, sizeof(buff), 0, (struct sockaddr *) (&cliAddr), &cliAddrLen);
         if (ret < 0) {
             LOG_COUT << " recvfrom fd=" << servFd << " ret=" << ret << LOG_ENDL;
             continue;
