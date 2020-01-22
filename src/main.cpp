@@ -56,30 +56,22 @@ void *mainCoroutine(void *arg)
             LOG_COUT << " recvfrom fd=" << servFd << " ret=" << ret << LOG_ENDL;
             continue;
         }
-        LOG_COUT << " recvfrom fd=" << servFd << " buff=" << buff << LOG_ENDL;
 
-        Pb2Json::Json json = Pb2Json::Json::parse(string(buff, ret));
+        int dataLen = ((MsgHead*)buff)->datalen;
+        char *data = buff+ sizeof(MsgHead);
+        if (dataLen+ sizeof(MsgHead) != ret) {
+            LOG_COUT << "Msg len err ! " << LOG_ENDL_ERR;
+            continue;
+        }
         shared_ptr<jraft::Network::Msg> recvMsg = make_shared<jraft::Network::Msg>();
-        Pb2Json::Json2Message(json, *recvMsg.get(), true);
+        if (!recvMsg->ParseFromArray(data, dataLen)) {
+            LOG_COUT << "ParseFromArray err ! " << LOG_ENDL_ERR;
+            continue;
+        }
+
 
         sockaddr_in *cliAddr1 = new sockaddr_in();
         memcpy(cliAddr1, &cliAddr, sizeof(sockaddr_in));
-        LOG_COUT << "recvfrom " << RaftMachine::pair2NodeId(Network::address2pair(shared_ptr<sockaddr_in>(cliAddr1)).get())
-                 << " groupId=" << recvMsg->group_id()
-                 << " msg=" << json.dump() << LOG_ENDL;
-        if (recvMsg->msg_type() == jraft::Network::MsgType::MSG_Type_Rpc_Request) {
-            if (!json["rpc_request"]["log_entrys"].is_null()) {
-                if (recvMsg->mutable_rpc_request()->log_entrys_size() == 0) {
-                    LOG_COUT << "Json2Message lose repeated data! fix now" << LOG_ENDL;
-                    Pb2Json::Json logJson = json["rpc_request"]["log_entrys"];
-                    for (int i = 0; i < logJson.size(); ++i) {
-                        jraft::Network::LogEntry *logEntry = recvMsg->mutable_rpc_request()->add_log_entrys();
-                        Pb2Json::Json2Message(logJson[i], *logEntry);
-                    }
-                }
-            }
-        }
-
         auto it = groupIdCommonMap->find(recvMsg->group_id());
         if (it != groupIdCommonMap->end()) {
             struct sockaddr_in *addr = static_cast<sockaddr_in *>(malloc(sizeof(struct sockaddr_in)));

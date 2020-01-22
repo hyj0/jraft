@@ -68,11 +68,17 @@ void Network::sendMsg(const pair<string, int> &pair, jraft::Network::Msg &msg) {
 //        return;
 //    }
 //
-    Pb2Json::Json json;
-    Pb2Json::Message2Json(msg, json, true);
-    string strMsg = json.dump();
-    LOG_COUT << "-->" << pair.first <<":"<<pair.second << " msg=" << json << LOG_ENDL;
-    ssize_t ret = sendto(selfnodeFd, strMsg.c_str(), strMsg.length(), 0,
+
+    string str;
+    bool ret1 = msg.SerializeToString(&str);
+    if (!ret1) {
+        LOG_COUT << "SerializeToString err ret=" << ret1 << LOG_ENDL_ERR;
+        return ;
+    }
+    char buff[sizeof(MsgHead)+str.length()];
+    ((MsgHead*)buff)->datalen = str.length();
+    memcpy(buff+ sizeof(MsgHead), str.c_str(), str.length());
+    ssize_t ret = sendto(selfnodeFd, buff, sizeof(MsgHead)+str.length(), 0,
                          (struct sockaddr *)&address,
                          sizeof(struct sockaddr_in));
     if (ret < 0) {
@@ -91,10 +97,6 @@ shared_ptr<pair<shared_ptr<pair<string, int>>, shared_ptr<jraft::Network::Msg>>>
                 address2pair(pMsg.first), pMsg.second);
         queueMsg.pop();
 
-        Pb2Json::Json  json;
-        Pb2Json::Message2Json(*pMsg.second.get(), json, true);
-
-        LOG_COUT << "recvMsg:" << json << LOG_ENDL;
     }
     return msg;
 }

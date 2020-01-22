@@ -18,6 +18,12 @@ using namespace std;
 int SetNonBlock(int iSock);
 int CreateUdpSecket(char *host, int port, int reuse);
 
+struct MsgHead {
+    int datalen; //data len
+    int magic;
+};
+
+
 class Network {
 public:
     Network(int selfnodeFd) : selfnodeFd(selfnodeFd) {

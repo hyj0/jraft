@@ -147,9 +147,9 @@ int RaftMachine::followerProcess() {
                                 entry->set_value(rpcReq->log_entrys(i).value());
                                 storage->setRaftLog(log, rpcReq->log_entrys(i).index());
                                 raftConfig.set_max_log_index(rpcReq->log_entrys(i).index());
-                                LOG_COUT << g_raftStatusNameMap[raftStatus]
-                                         << " append log !"
-                                         <<" max_log_index=" << raftConfig.max_log_index() << LOG_ENDL;
+//                                LOG_COUT << g_raftStatusNameMap[raftStatus]
+//                                         << " append log !"
+//                                         <<" max_log_index=" << raftConfig.max_log_index() << LOG_ENDL;
                             }
 
                             if (rpcReq->leader_commit() < raftConfig.commit_index()) {
@@ -577,6 +577,9 @@ int RaftMachine::leaderProcess() {
                         switch (cliReq->request_type()) {
                             case 1: //set index key value
                             {
+#if 1
+                                cliReq->set_log_index(raftConfig.max_log_index()+1);
+#endif
                                 if (cliReq->log_index() != raftConfig.max_log_index() + 1) {
                                     cliRes->set_result(3);
                                     cliRes->set_err_msg("logIndex err");

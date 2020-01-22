@@ -16,13 +16,32 @@
 using namespace std;
 
 int Client::sendMsg(int fd, std::string host, int port, jraft::Network::Msg msg) {
+#if 1
+    string str;
+    bool ret = msg.SerializeToString(&str);
+    if (!ret) {
+        LOG_COUT << "SerializeToString err ret=" << ret << LOG_ENDL_ERR;
+        return -1;
+    }
+    const shared_ptr<sockaddr_in> &addresss = Network::host2address(host, port);
+    char buff[sizeof(MsgHead)+str.length()];
+    ((MsgHead*)buff)->datalen = str.length();
+    memcpy(buff+ sizeof(MsgHead), str.c_str(), str.length());
+    int ret1 = sendto(fd, buff, sizeof(MsgHead)+str.length(), 0,
+                     reinterpret_cast<const sockaddr *>(addresss.get()), sizeof(struct sockaddr_in));
+    return ret1;
+#else
     Pb2Json::Json json;
     Pb2Json::Message2Json(msg, json, true);
     const shared_ptr<sockaddr_in> &addresss = Network::host2address(host, port);
     string str = json.dump();
-    int ret = sendto(fd, str.c_str(), str.length(), 0,
+    char buff[sizeof(MsgHead)+str.length()];
+    ((MsgHead*)buff)->datalen = str.length();
+    memcpy(buff+ sizeof(MsgHead), str.c_str(), str.length());
+    int ret = sendto(fd, buff, sizeof(MsgHead)+str.length(), 0,
                      reinterpret_cast<const sockaddr *>(addresss.get()), sizeof(struct sockaddr_in));
     return ret;
+#endif
 }
 
 
@@ -82,15 +101,24 @@ void *mainCoroutine(void *arg)
                 LOG_COUT << "sendMsg err ret=" << ret << LOG_ENDL_ERR;
             }
 
-            char buff[1000];
+            char buff[1000*4];
             ret = recvfrom(fd, buff, sizeof(buff), 0, 0, 0);
             if (ret < 0) {
                 LOG_COUT << "recvfrom err ret=" << ret << LOG_ENDL_ERR;
                 continue;
             }
-            string recvmsg = string(buff, ret);
-            cout << recvmsg << endl;
 
+            int dataLen = ((MsgHead*)buff)->datalen;
+            char *data = buff+ sizeof(MsgHead);
+            shared_ptr<jraft::Network::Msg> recvMsg = make_shared<jraft::Network::Msg>();
+            if (!recvMsg->ParseFromArray(data, dataLen)) {
+                LOG_COUT << "ParseFromArray err ! " << LOG_ENDL_ERR;
+                continue;
+            }
+
+            Pb2Json::Json json;
+            Pb2Json::Message2Json(*recvMsg, json, true);
+            cout << json << endl;
             continue;
         }
         if (n == 2 && string(args[0]) == "get") {
@@ -111,8 +139,18 @@ void *mainCoroutine(void *arg)
                 LOG_COUT << "recvfrom err ret=" << ret << LOG_ENDL_ERR;
                 continue;
             }
-            string recvmsg = string(buff, ret);
-            cout << recvmsg << endl;
+
+            int dataLen = ((MsgHead*)buff)->datalen;
+            char *data = buff+ sizeof(MsgHead);
+            shared_ptr<jraft::Network::Msg> recvMsg = make_shared<jraft::Network::Msg>();
+            if (!recvMsg->ParseFromArray(data, dataLen)) {
+                LOG_COUT << "ParseFromArray err ! " << LOG_ENDL_ERR;
+                continue;
+            }
+
+            Pb2Json::Json json;
+            Pb2Json::Message2Json(*recvMsg, json, true);
+            cout << json << endl;
             continue;
         }
         if (n == 2 && string(args[0]) == "perf") {
@@ -135,11 +173,19 @@ void *mainCoroutine(void *arg)
                 LOG_COUT << "recvfrom err ret=" << ret << LOG_ENDL_ERR;
                 continue;
             }
-            string recvmsg = string(buff, ret);
-            cout << recvmsg << endl;
-            Pb2Json::Json json = Pb2Json::Json::parse(recvmsg);
+
+            int dataLen = ((MsgHead*)buff)->datalen;
+            char *data = buff+ sizeof(MsgHead);
             shared_ptr<jraft::Network::Msg> recvMsg = make_shared<jraft::Network::Msg>();
-            Pb2Json::Json2Message(json, *recvMsg.get(), true);
+            if (!recvMsg->ParseFromArray(data, dataLen)) {
+                LOG_COUT << "ParseFromArray err ! " << LOG_ENDL_ERR;
+                continue;
+            }
+
+            Pb2Json::Json json;
+            Pb2Json::Message2Json(*recvMsg, json, true);
+            cout << json << endl;
+
             if (recvMsg->msg_type() == jraft::Network::MsgType::MSG_Type_Cli_Response) {
                 jraft::Network::CliRes *cliRes = recvMsg->mutable_cli_response();
                 if (cliRes->commit_index() == cliRes->last_log_index()) {
@@ -174,9 +220,16 @@ void *mainCoroutine(void *arg)
                     LOG_COUT << "recvfrom err ret=" << ret << LOG_ENDL_ERR;
                     continue;
                 }
-                string recvmsg = string(buff, ret);
-                cout << recvmsg << endl;
+                int dataLen = ((MsgHead*)buff)->datalen;
+                char *data = buff+ sizeof(MsgHead);
+                shared_ptr<jraft::Network::Msg> recvMsg = make_shared<jraft::Network::Msg>();
+                if (!recvMsg->ParseFromArray(data, dataLen)) {
+                    LOG_COUT << "ParseFromArray err ! " << LOG_ENDL_ERR;
+                    continue;
+                }
+                continue;
             }
+
             {
                 struct timeval tEnd;
                 gettimeofday(&tEnd, NULL);
@@ -200,12 +253,15 @@ void *mainCoroutine(void *arg)
                     LOG_COUT << "recvfrom err ret=" << ret << LOG_ENDL_ERR;
                     continue;
                 }
-                string recvmsg = string(buff, ret);
-                cout << recvmsg << endl;
 
-                Pb2Json::Json json = Pb2Json::Json::parse(recvmsg);
+                int dataLen = ((MsgHead*)buff)->datalen;
+                char *data = buff+ sizeof(MsgHead);
                 shared_ptr<jraft::Network::Msg> recvMsg = make_shared<jraft::Network::Msg>();
-                Pb2Json::Json2Message(json, *recvMsg.get(), true);
+                if (!recvMsg->ParseFromArray(data, dataLen)) {
+                    LOG_COUT << "ParseFromArray err ! " << LOG_ENDL_ERR;
+                    continue;
+                }
+
                 if (recvMsg->msg_type() == jraft::Network::MsgType::MSG_Type_Cli_Response) {
                     jraft::Network::CliRes *cliRes = recvMsg->mutable_cli_response();
                     if (cliRes->commit_index() == cliRes->last_log_index()) {
@@ -251,8 +307,16 @@ void *mainCoroutine(void *arg)
                 LOG_COUT << "recvfrom err ret=" << ret << LOG_ENDL_ERR;
                 continue;
             }
-            string recvmsg = string(buff, ret);
-            cout << recvmsg << endl;
+            int dataLen = ((MsgHead*)buff)->datalen;
+            char *data = buff+ sizeof(MsgHead);
+            shared_ptr<jraft::Network::Msg> recvMsg = make_shared<jraft::Network::Msg>();
+            if (!recvMsg->ParseFromArray(data, dataLen)) {
+                LOG_COUT << "ParseFromArray err ! " << LOG_ENDL_ERR;
+                continue;
+            }
+            Pb2Json::Json json;
+            Pb2Json::Message2Json(*recvMsg, json, true);
+            cout << json << endl;
 
             continue;
         }
