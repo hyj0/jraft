@@ -543,9 +543,10 @@ int RaftMachine::leaderProcess() {
                             changeRaftStat(RAFT_STAT_FOLLOWER);
                             return 0;
                         }
-                        nodesLogInfo->setNextIndex(nodeId, rpcRes->match_index()+1);
+
                         if (rpcRes->success()) {
-                            //返回成功才可以更新
+                            //返回成功才可以更新matchIndex
+                            //nextIndex不更新
                             nodesLogInfo->setMatchIndex(nodeId, rpcRes->match_index(), this->pair2NodeId(*selfNode),
                                                         raftConfig.max_log_index());
                             if (nodesLogInfo->getMaxCommitedId() > raftConfig.commit_index()) {
@@ -553,6 +554,10 @@ int RaftMachine::leaderProcess() {
                                 raftConfig.set_commit_index(nodesLogInfo->getMaxCommitedId());
                             }
                             storage->setRaftConfig(raftConfig);
+                        } else {
+                            //false
+                            //pipeline? 连续发,失败才更新
+                            nodesLogInfo->setNextIndex(nodeId, rpcRes->match_index()+1);
                         }
                         if (nodesLogInfo->getNextIndex(nodeId) != raftConfig.max_log_index()+1) {
                             //加速日志复制
@@ -693,7 +698,8 @@ int RaftMachine::leaderProcess() {
                 if (raftConfig.max_log_index() - nodeNextId > 10) {
                     LOG_COUT << "less log n=" << raftConfig.max_log_index() - nodeNextId << LOG_ENDL;
                 }
-                for (int j = nodeNextId; j <= nodeNextId + 20 && j <= raftConfig.max_log_index(); ++j) {
+                string nodeIdStr = pair2NodeId(nodeId);
+                for (int j = nodeNextId; j <= nodeNextId + 80 && j <= raftConfig.max_log_index(); ++j) {
                     shared_ptr<jraft::Storage::Log> log = storage->getRaftLog(j);
                     if (log != NULL) {
                         Pb2Json::Json json;
@@ -705,6 +711,8 @@ int RaftMachine::leaderProcess() {
                         logEntry->set_value(log->mutable_log_entry()->value());
                         logEntry->set_term(log->term());
                         logEntry->set_index(log->log_index());
+                        //pipeline? 直接更新NextIndex
+                        nodesLogInfo->setNextIndex(nodeIdStr, log->log_index()+1);
                     }
                 }
 
