@@ -15,10 +15,12 @@ protected:
     jraft::Storage::RaftConfig raftConfig;
     GroupCfg groupCfg;
     vector<jraft::Storage::Log> raftLogArray;
+    pthread_mutex_t raftLogArrayLock;
 public:
     Storage (string & storageName, string nodeId) {
         jraft::Storage::Log log;
         raftLogArray.push_back(log);
+        raftLogArrayLock = PTHREAD_MUTEX_INITIALIZER;
     }
 
     virtual ~Storage() {}
@@ -56,17 +58,32 @@ public:
     }
 
     virtual int setRaftLog(jraft::Storage::Log &log, int index) {
+        pthread_mutex_lock(&raftLogArrayLock);
         if (index < raftLogArray.size()) {
             raftLogArray[index] = log;
         } else {
             if (index == raftLogArray.size()) {
                 raftLogArray.push_back(log);
             } else {
-                LOG_COUT << "logIndex err logIndex=" << index << LOG_ENDL;
-                return -1;
+                raftLogArray.resize(index+1);
+                raftLogArray[index] = log;
+//                LOG_COUT << "logIndex err logIndex=" << index << LOG_ENDL;
+//                return -1;
             }
         }
+        pthread_mutex_unlock(&raftLogArrayLock);
         return 0;
+    }
+
+    virtual int setRaftLog(vector<jraft::Storage::Log> &logVect) {
+        for (int i = 0; i < logVect.size(); ++i) {
+            setRaftLog(logVect[i], logVect[i].log_index());
+        }
+    }
+
+    virtual int setRaftLog(vector<jraft::Storage::Log> &logVect, const jraft::Storage::RaftConfig &raftConfig) {
+        setRaftLog(logVect);
+        setRaftConfig(raftConfig);
     }
 };
 

@@ -136,6 +136,7 @@ int RaftMachine::followerProcess() {
                                 raftConfig.set_current_term(rpcReq->term());
                             }
 
+                            vector<jraft::Storage::Log> batchVect;
                             for (int i = 0; i < rpcReq->log_entrys_size(); ++i) {
                                 //:支持多个log_entrys
                                 jraft::Storage::Log log;
@@ -145,8 +146,11 @@ int RaftMachine::followerProcess() {
                                 entry->set_action(rpcReq->log_entrys(i).action());
                                 entry->set_key(rpcReq->log_entrys(i).key());
                                 entry->set_value(rpcReq->log_entrys(i).value());
-                                storage->setRaftLog(log, rpcReq->log_entrys(i).index());
-                                raftConfig.set_max_log_index(rpcReq->log_entrys(i).index());
+                                batchVect.push_back(log);
+//                                storage->setRaftLog(log, rpcReq->log_entrys(i).index());
+                                if (rpcReq->log_entrys(i).index() > raftConfig.max_log_index()) {
+                                    raftConfig.set_max_log_index(rpcReq->log_entrys(i).index());
+                                }
 //                                LOG_COUT << g_raftStatusNameMap[raftStatus]
 //                                         << " append log !"
 //                                         <<" max_log_index=" << raftConfig.max_log_index() << LOG_ENDL;
@@ -173,7 +177,8 @@ int RaftMachine::followerProcess() {
                                          << raftConfig.commit_index() << "-->" << new_commit_index << LOG_ENDL;
                                 raftConfig.set_commit_index(new_commit_index);
                             }
-                            storage->setRaftConfig(raftConfig);
+                            storage->setRaftLog(batchVect, raftConfig);
+
                             result = true;
                             this->leader_id = rpcReq->leader_id();
                         }

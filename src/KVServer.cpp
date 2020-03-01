@@ -49,11 +49,16 @@ void *KVWriteLogCoroutine(void *args) {
                 LOG_COUT << "preWriteLog err ret=" << startLogid << LOG_ENDL;
                 assert(0);//todo:preWriteLog err
             }
-            //todo:batch write
+            //:batch write
             LOG_COUT << "size=" << logDataV.size() << LOG_ENDL;
+            vector<jraft::Storage::Log> batchLog;
             for (int i = 0; i < logDataV.size(); ++i) {
-                commonIt->second->getStorage()->setRaftLog(logDataV[i]->log, logDataV[i]->log.log_index());
-                logDataV[i]->state = 1;
+                batchLog.push_back(logDataV[i]->log);
+            }
+            //写入
+            commonIt->second->getStorage()->setRaftLog(batchLog);
+            for (int j = 0; j < logDataV.size(); ++j) {
+                logDataV[j]->state = 1;
             }
             //通知处理
             commonIt->second->getRaftMachine()->notifyLeaderSendLog();

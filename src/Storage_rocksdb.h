@@ -112,6 +112,48 @@ public:
         return 0;
     }
 
+    int setRaftLog(vector<jraft::Storage::Log> &logVect) override {
+        rocksdb::WriteBatch writeBatch;
+        for (int i = 0; i < logVect.size(); ++i) {
+            Pb2Json::Json json;
+            Pb2Json::Message2Json(logVect[i], json, true);
+            rocksdb::WriteOptions writeOptions = rocksdb::WriteOptions();
+            writeBatch.Put(getRaftLogKey(logVect[i].log_index()), json.dump());
+        }
+        rocksdb::WriteOptions writeOptions = rocksdb::WriteOptions();
+        writeOptions.sync = true;
+        rocksdb::Status status = db->Write(writeOptions, &writeBatch);
+        if (!status.ok()) {
+            LOG_COUT << "put err:" << LOG_ENDL;
+            return -1;
+        }
+        return 0;
+    }
+
+    int setRaftLog(vector<jraft::Storage::Log> &logVect, const jraft::Storage::RaftConfig &raftConfig) override {
+        rocksdb::WriteBatch writeBatch;
+        for (int i = 0; i < logVect.size(); ++i) {
+            Pb2Json::Json json;
+            Pb2Json::Message2Json(logVect[i], json, true);
+            rocksdb::WriteOptions writeOptions = rocksdb::WriteOptions();
+            writeBatch.Put(getRaftLogKey(logVect[i].log_index()), json.dump());
+        }
+
+        Pb2Json::Json json;
+        Pb2Json::Message2Json(raftConfig, json, true);
+        writeBatch.Put(key_RaftConfig, json.dump());
+
+        rocksdb::WriteOptions writeOptions = rocksdb::WriteOptions();
+        writeOptions.sync = true;
+        rocksdb::Status status = db->Write(writeOptions, &writeBatch);
+        if (!status.ok()) {
+            LOG_COUT << "put err:" << LOG_ENDL;
+            return -1;
+        }
+        Storage::setRaftConfig(raftConfig);
+        return 0;
+    }
+
     string getRaftLogKey(int index) {
         stringstream strBuff;
         strBuff << key_RaftLog << index;
