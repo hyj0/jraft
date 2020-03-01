@@ -6,6 +6,8 @@
 #define PROJECT_RAFTMACHINE_H
 
 #include <algorithm>
+#include <storage.pb.h>
+#include "Utils.h"
 #include "Common.h"
 #define VOTEFOR_NULL string("NULL")
 
@@ -34,6 +36,12 @@ private:
     jraft::Storage::RaftConfig raftConfig;
     shared_ptr<NodesLogInfo> nodesLogInfo;
     string leader_id;
+
+    RingBuff preWriteBuff_;
+    struct stCoCond_t *preWriteCond;
+    long tid;
+    int notify_events;
+    queue<LogData *> readyLogQue; //已经持久化存储的日志
 public:
     RaftMachine(Storage *storage, Network *network, GroupCfg *groupCfg, const shared_ptr<pair<string, int>> &selfNode)
             : storage(storage), network(network), groupCfg(groupCfg), selfNode(selfNode) {
@@ -46,6 +54,8 @@ public:
         /**/
         raftConfig = storage->getRaftConfig();
         this->raftStatus = RAFT_STAT_FOLLOWER;
+        preWriteCond = co_cond_alloc();
+        tid = GetThreadId();
     }
 
     void start();
@@ -64,6 +74,24 @@ public:
 
     int getLastLogTerm();
 
+    jraft::Storage::RaftConfig *getRaftConfig() {
+        return &raftConfig;
+    }
+
+//    //各个应用线程注册线程对应的预写的logid的列表
+//    int registerThreadLogidQueque(long threadId, vector<void *> preLogidList);
+
+    //业务预写log, 只是写入内存队列,
+    //返回值>0 则返回值为开始的logid, 可使用的范围[logid, logList.size]
+    //<0 则出错
+    int preWriteLog(vector<LogData *> &logList);
+
+    //业务通知leader预写完成, 触发leader发送log给follower
+    int notifyLeaderSendLog();
+
+    leaderSendLogProccess();
+
+    eventLoop();
 };
 
 class NodesLogInfo{

@@ -23,6 +23,7 @@ public:
     Storage_rocksdb(string & storageName, string nodeId):Storage(storageName, nodeId) {
         dbName = storageName + "_" + nodeId + ".db";
         rocksdb::Options options;
+        options.write_buffer_size = 1 << 30;
         options.create_if_missing = true;
         rocksdb::Status status = rocksdb::DB::Open(options, dbName, &db);
         if (!status.ok()) {

@@ -61,4 +61,6 @@ private:
     stCoCond_t* cond;
 };
 
+int CreateTcpSocket(const unsigned short shPort /* = 0 */,const char *pszIP /* = "*" */,bool bReuse /* = false */);
+
 #endif //PROJECT_NETWORK_H

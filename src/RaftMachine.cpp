@@ -459,6 +459,12 @@ int RaftMachine::candidaterProcess() {
 }
 
 int RaftMachine::leaderProcess() {
+    //todo:重置PreWriteLog
+    preWriteBuff_.retSetIndex(raftConfig.max_log_index()+1);
+    if (raftConfig.max_log_index() == 0) {
+        preWriteBuff_.retSetIndex(2);
+    }
+
     int initFlag = false;
     while (true)
     {
@@ -550,8 +556,27 @@ int RaftMachine::leaderProcess() {
                             nodesLogInfo->setMatchIndex(nodeId, rpcRes->match_index(), this->pair2NodeId(*selfNode),
                                                         raftConfig.max_log_index());
                             if (nodesLogInfo->getMaxCommitedId() > raftConfig.commit_index()) {
-                                LOG_COUT << "update commit_index " << raftConfig.commit_index() << "-->" << nodesLogInfo->getMaxCommitedId() << LOG_ENDL;
+                                LOG_COUT << "update commit_index " << raftConfig.commit_index() << "-->" << nodesLogInfo->getMaxCommitedId()
+                                << " size=" << nodesLogInfo->getMaxCommitedId()-raftConfig.commit_index() << LOG_ENDL;
                                 raftConfig.set_commit_index(nodesLogInfo->getMaxCommitedId());
+                                //todo:apply commited log
+
+                                while (!readyLogQue.empty()) {
+                                    LogData *logData = readyLogQue.front();
+                                    if (logData == NULL) {
+                                        break;
+                                    }
+                                    if (logData->log.log_index() <= raftConfig.commit_index()) {
+                                        //通知业务完成
+                                        logData->state = 2;
+                                        CoroutineSignalOverThread::getInstance()->addSig(logData->cond, logData->tid);
+                                        readyLogQue.pop();
+                                    } else {
+//                                        LOG_COUT << "no biger!!!  logData->log.log_index()  : raftConfig.commit_index() "
+//                                        << logData->log.log_index() << ":" <<  raftConfig.commit_index() << LOG_ENDL;
+                                        break;
+                                    }
+                                }
                             }
                             storage->setRaftConfig(raftConfig);
                         } else {
@@ -562,9 +587,10 @@ int RaftMachine::leaderProcess() {
                         if (nodesLogInfo->getNextIndex(nodeId) != raftConfig.max_log_index()+1) {
                             //加速日志复制
                             LOG_COUT << " 加速日志复制  " << nodeId  <<  " " << nodesLogInfo->getNextIndex(nodeId) << " " << raftConfig.max_log_index() << LOG_ENDL;
-                            if (timer.getRemainTime() > 10) {
-                                timer.resetTime(10);
-                            }
+//                            if (timer.getRemainTime() > 10) {
+//                                timer.resetTime(10);
+//                            }
+                            co_cond_signal(preWriteCond);
                         }
                         break;
                     }
@@ -608,9 +634,10 @@ int RaftMachine::leaderProcess() {
                                 storage->setRaftConfig(raftConfig);
                                 storage->setRaftLog(configLog, raftConfig.max_log_index());
                                 //立即触发发送日志
-                                if (timer.getRemainTime() > 10) {
-                                    timer.resetTime(10);
-                                }
+                                co_cond_signal(preWriteCond);
+//                                if (timer.getRemainTime() > 10) {
+//                                    timer.resetTime(10);
+//                                }
                                 break;
                             }
                             case 2:
@@ -653,7 +680,9 @@ int RaftMachine::leaderProcess() {
                 }
             }
         }
-
+        //由leaderSendLogProccess发送
+        continue;
+#if 0
         /*add group config to log*/
         if (raftConfig.max_log_index() == 0) {
             jraft::Storage::Log configLog;
@@ -719,11 +748,16 @@ int RaftMachine::leaderProcess() {
             }
             network->sendMsg(groupCfg->getNodes()[i], msg);
         }
+#endif
     }
     return 0;
 }
 
+
+
+
 void RaftMachine::start() {
+    //主流程
     while (true) {
         cout << endl;
         LOG_COUT << "groupId=" << groupCfg->getGroupId()
@@ -754,3 +788,154 @@ int RaftMachine::getLastLogTerm() {
     }
     return raftLog->term();
 }
+
+int RaftMachine::preWriteLog(vector<LogData *> &logList) {
+    int retLogId = -1;
+#if 1
+    if (raftStatus != RAFT_STAT_LEADER) {
+        return -1;
+    }
+#else
+    retLogId = 1;
+#endif
+//    if (preWriteBuff_.IsFull()) {
+//        return -2;
+//    }
+
+    for (int i = 0; i < logList.size(); ++i) {
+        long retIndex = preWriteBuff_.addBuff(logList[i]);
+        if (retIndex < 0) {
+            assert(0);
+        }
+        logList[i]->log.set_term(raftConfig.current_term());
+        logList[i]->log.set_log_index(retIndex);
+    }
+    return 0;
+}
+
+int RaftMachine::leaderSendLogProccess() {
+    while (1) {
+        co_cond_timedwait(preWriteCond, 1000*3);
+        if (raftStatus != RAFT_STAT_LEADER) {
+            continue;
+        }
+        LOG_COUT << "start send log ..." << LOG_ENDL;
+        /*add group config to log*/
+        if (raftConfig.max_log_index() == 0) {
+            jraft::Storage::Log configLog;
+            configLog.set_log_index(1);
+            configLog.set_term(raftConfig.current_term());
+            jraft::Storage::LogEntry *entry = configLog.mutable_log_entry();
+            entry->set_action("change");
+            entry->set_key("__raft_group_nodes__");
+            vector<string> nodesArray;
+            for (int i = 0; i < groupCfg->getNodes().size(); ++i) {
+                nodesArray.push_back(pair2NodeId((pair<string, int>&)groupCfg->getNodes()[i]));
+            }
+            nodesArray.push_back(pair2NodeId(this->selfNode.get()));
+            Pb2Json::Json json = nodesArray;
+            LOG_COUT << "nodesJon=" << json.dump() << LOG_ENDL;
+            entry->set_value(json.dump());
+            raftConfig.set_max_log_index(raftConfig.max_log_index() + 1);
+            storage->setRaftConfig(raftConfig);
+            storage->setRaftLog(configLog, raftConfig.max_log_index());
+        }
+
+        //todo:检查preWriteLog
+        int old_log_id = raftConfig.max_log_index();
+        int index = 0;
+        for (; index < 1000; index++) {
+            if (!preWriteBuff_.IsIn(preWriteBuff_.getStartIndex())) {
+                break;
+            }
+            LogData *logData =preWriteBuff_.getData(preWriteBuff_.getStartIndex());
+            if (logData == NULL) {
+                break;
+            }
+            if (logData->state != 1) {
+                break;
+            }
+            if (logData->log.log_index() == raftConfig.max_log_index()+1) {
+                raftConfig.set_max_log_index(raftConfig.max_log_index()+1);
+                preWriteBuff_.popOne();
+//                LOG_COUT << "readyLogQue.push logid=" << logData->log.log_index() << LOG_ENDL;
+                readyLogQue.push(logData);
+            } else {
+                LOG_COUT << "ERR!!  logData->log.log_index() != raftConfig.max_log_index()+1 "
+                << logData->log.log_index() <<" "<< raftConfig.max_log_index()<< LOG_ENDL;
+                break;
+            }
+        }
+
+        if (raftConfig.max_log_index() != old_log_id) {
+            LOG_COUT << "log_index " << old_log_id << "-->" << raftConfig.max_log_index()
+            << " size=" << raftConfig.max_log_index()-old_log_id << LOG_ENDL;
+            storage->setRaftConfig(raftConfig);
+        }
+
+        for (int i = 0; i < groupCfg->getNodes().size(); ++i) {
+            jraft::Network::Msg msg;
+            msg.set_group_id(groupCfg->getGroupId());
+            msg.set_msg_type(jraft::Network::MsgType::MSG_Type_Rpc_Request);
+            jraft::Network::RpcReq *rpcReq = msg.mutable_rpc_request();
+            rpcReq->set_term(raftConfig.current_term());
+            rpcReq->set_leader_id(pair2NodeId(selfNode.get()));
+            pair<string, int> nodeId = groupCfg->getNodes()[i];
+            int nodeNextId = nodesLogInfo->getNextIndex(pair2NodeId(nodeId));
+            rpcReq->set_prev_log_index(nodeNextId-1);
+            const shared_ptr<jraft::Storage::Log> &raftLog = storage->getRaftLog(nodeNextId - 1);
+            if (raftLog == nullptr) {
+                rpcReq->set_prev_log_term(0);
+            } else {
+                rpcReq->set_prev_log_term(raftLog->term());
+            }
+
+            rpcReq->set_leader_commit(raftConfig.commit_index());
+
+            if (nodeNextId <= raftConfig.max_log_index()) {
+                if (raftConfig.max_log_index() - nodeNextId > 10) {
+                    LOG_COUT << "less log n=" << raftConfig.max_log_index() - nodeNextId << LOG_ENDL;
+                }
+                string nodeIdStr = pair2NodeId(nodeId);
+                for (int j = nodeNextId; j <= nodeNextId + 80 && j <= raftConfig.max_log_index(); ++j) {
+                    shared_ptr<jraft::Storage::Log> log = storage->getRaftLog(j);
+                    if (log != NULL) {
+                        Pb2Json::Json json;
+                        Pb2Json::Message2Json(*log.get(), json);
+//                        LOG_COUT << "index=" << nodeNextId << " log=" << json.dump() << LOG_ENDL;
+                        jraft::Network::LogEntry *logEntry = rpcReq->add_log_entrys();
+                        logEntry->set_action(log->mutable_log_entry()->action());
+                        logEntry->set_key(log->mutable_log_entry()->key());
+                        logEntry->set_value(log->mutable_log_entry()->value());
+                        logEntry->set_term(log->term());
+                        logEntry->set_index(log->log_index());
+                        //pipeline? 直接更新NextIndex
+                        nodesLogInfo->setNextIndex(nodeIdStr, log->log_index()+1);
+                    } else {
+                        LOG_COUT << "get log err !!! index=" << j << LOG_ENDL;
+                        break;
+                    }
+                }
+
+            }
+            network->sendMsg(groupCfg->getNodes()[i], msg);
+        }
+
+    }
+    return 0;
+}
+
+int RaftMachine::notifyLeaderSendLog() {
+    notify_events++;
+    return 0;
+}
+
+int RaftMachine::eventLoop() {
+    if (notify_events > 0) {
+        LOG_COUT << "notify_events=" << notify_events << LOG_ENDL;
+        notify_events = 0;
+        co_cond_signal(preWriteCond);
+    }
+    return 0;
+}
+

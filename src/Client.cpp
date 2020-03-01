@@ -12,8 +12,59 @@
 #include <unistd.h>
 #include "pb2json.h"
 #include <sys/time.h>
-
+#include <malloc.h>
 using namespace std;
+
+//clock_gettime
+#if 1
+//
+extern "C"{
+int __clock_gettime_glibc_2_2_5(clockid_t clk_id, struct timespec *tp);
+}
+__asm__(".symver __clock_gettime_glibc_2_2_5,  clock_gettime@GLIBC_2.2.5");
+extern "C" {
+int __wrap_clock_gettime(clockid_t clk_id, struct timespec *tp)
+{
+    return __clock_gettime_glibc_2_2_5(clk_id, tp);
+}
+}
+#endif
+
+#if 1
+extern "C"{
+void *__aligned_alloc_glibc_2_2_5(size_t alignment, size_t size);
+}
+__asm__(".symver __aligned_alloc_glibc_2_2_5,  aligned_alloc@GLIBC_2.16");
+extern "C" {
+void *__wrap_aligned_alloc(size_t alignment, size_t size)
+{
+#if 1
+//    return __aligned_alloc_glibc_2_2_5(alignment, size);
+    return memalign(alignment, size);
+#else
+    printf("coredump %s:%d\n", __FILE__, __LINE__);
+    1/0;
+    return 0;
+#endif
+}
+}
+#endif
+
+#if 1
+// memcpy
+extern "C"{
+void *__memcpy_glibc_2_2_5(void *, const void *, size_t);
+}
+
+asm(".symver __memcpy_glibc_2_2_5, memcpy@GLIBC_2.2.5");
+
+extern "C" {
+void *__wrap_memcpy(void *dest, const void *src, size_t n)
+{
+    return __memcpy_glibc_2_2_5(dest, src, n);
+}
+}
+#endif
 
 int Client::sendMsg(int fd, std::string host, int port, jraft::Network::Msg msg) {
 #if 1

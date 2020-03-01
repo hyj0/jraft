@@ -9,7 +9,11 @@
 #include "Config.h"
 #include "Network.h"
 #include "Storage.h"
+#include "Utils.h"
+#include "RaftMachine.h"
+#include "Common.h"
 
+class RaftMachine;
 class Common {
 public:
     Network *getNetwork() const {
@@ -36,11 +40,20 @@ public:
         Common::groupCfg = groupCfg;
     }
 
+    RaftMachine *getRaftMachine() const {
+        return raftMachine;
+    }
+
+    void setRaftMachine(RaftMachine *raftMachine) {
+        Common::raftMachine = raftMachine;
+    }
+
 private:
     GroupCfg *groupCfg;
     Network *network;
     Storage *storage;
     shared_ptr<pair<string, int>> selfnode;
+    RaftMachine *raftMachine;
 public:
     const shared_ptr<pair<string, int>> &getSelfnode() const {
         return selfnode;

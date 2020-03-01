@@ -1,9 +1,12 @@
 //
 // Created by dell-pc on 2018/5/6.
 //
+#include <stdio.h>
+#include <malloc.h>
 #include <iostream>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 #include "json11.hpp"
 #include "Log.h"
 #include "Config.h"
@@ -14,8 +17,67 @@
 #include "Utils.h"
 #include "Storage_leveldb.h"
 #include "Storage_rocksdb.h"
-
+#include "KVServer.h"
 using namespace std;
+
+//clock_gettime
+#if 1
+//
+extern "C"{
+int __clock_gettime_glibc_2_2_5(clockid_t clk_id, struct timespec *tp);
+}
+__asm__(".symver __clock_gettime_glibc_2_2_5,  clock_gettime@GLIBC_2.2.5");
+extern "C" {
+int __wrap_clock_gettime(clockid_t clk_id, struct timespec *tp)
+{
+    return __clock_gettime_glibc_2_2_5(clk_id, tp);
+}
+}
+#endif
+
+#if 1
+extern "C"{
+void *__aligned_alloc_glibc_2_2_5(size_t alignment, size_t size);
+}
+__asm__(".symver __aligned_alloc_glibc_2_2_5,  aligned_alloc@GLIBC_2.16");
+extern "C" {
+void *__wrap_aligned_alloc(size_t alignment, size_t size)
+{
+#if 1
+//    return __aligned_alloc_glibc_2_2_5(alignment, size);
+    return memalign(alignment, size);
+#else
+    printf("coredump %s:%d\n", __FILE__, __LINE__);
+    1/0;
+    return 0;
+#endif
+}
+}
+#endif
+
+#if 1
+// memcpy
+extern "C"{
+void *__memcpy_glibc_2_2_5(void *, const void *, size_t);
+}
+
+asm(".symver __memcpy_glibc_2_2_5, memcpy@GLIBC_2.2.5");
+
+extern "C" {
+void *__wrap_memcpy(void *dest, const void *src, size_t n)
+{
+    return __memcpy_glibc_2_2_5(dest, src, n);
+}
+}
+#endif
+
+int co_accept(int fd, struct sockaddr *addr, socklen_t *len);
+
+void *leaderSendLogCoroutine(void *arg) {
+    RaftMachine *raftMachine = (RaftMachine *)arg;
+    LOG_COUT << "start leaderSendLogCoroutine" << LOG_ENDL;
+    raftMachine->leaderSendLogProccess();
+}
 
 void *startRaftMachine(void *arg)
 {
@@ -25,9 +87,15 @@ void *startRaftMachine(void *arg)
     Storage *storage = common->getStorage();
     shared_ptr<pair<string, int>> selfNode = common->getSelfnode();
 
-    RaftMachine raftMachine(storage, network, common->getGroupCfg(), selfNode);
+    RaftMachine *pRaftMachine = new RaftMachine(storage, network, common->getGroupCfg(), selfNode);
+    common->setRaftMachine(pRaftMachine);
 
-    raftMachine.start();
+    //新建leader发送log协程
+    stCoRoutine_t *ctx = NULL;
+    co_create(&ctx, NULL, leaderSendLogCoroutine, pRaftMachine);
+    co_resume(ctx);
+
+    pRaftMachine->start();
 }
 
 void *mainCoroutine(void *arg)
@@ -92,6 +160,14 @@ void signalHand(int sig)
     exit(0);
 }
 
+void loopFun(void *arg) {
+    map<string, Common*> *groupIdCommonMap = (map<string, Common*> *)arg;
+    auto it = groupIdCommonMap->begin();
+    for (; it!= groupIdCommonMap->end(); ++it) {
+       it->second->getRaftMachine()->eventLoop();
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -141,6 +217,8 @@ int main(int argc, char **argv)
     co_create(&ctx, NULL, mainCoroutine, &groupIdCommonMap);
     co_resume(ctx);
 
-    co_eventloop(co_get_epoll_ct(), NULL, NULL);
+    StartKVServer(groupIdCommonMap, selfnode->second);
+
+    co_eventloop(co_get_epoll_ct(), loopFun, &groupIdCommonMap);
 }
 

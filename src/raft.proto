@@ -55,6 +55,20 @@ message CliRes {
     optional uint32 commit_index = 8;
 }
 
+message KVCliReq {
+    optional string client_id = 1;
+    optional uint32 request_type = 2;//1--change/delete key, 2--get value,
+    optional LogEntry log_entry = 3;
+}
+
+message KVCliRes {
+    optional uint32 result = 1;//0--success, 1--raft err, else--err
+    optional string err_msg = 2;//
+    optional uint32 raft_state = 3;// 1--leader 2--follower, 3--candidater
+    optional string leader_id = 4;
+    optional LogEntry log_entry = 5;
+}
+
 enum MsgType {
     MSG_Type_Vote_Request = 1;
     MSG_Type_Vote_Response = 2;
@@ -62,6 +76,8 @@ enum MsgType {
     MSG_Type_Rpc_Response = 4;
     MSG_Type_Cli_Request = 5;
     MSG_Type_Cli_Response = 6;
+    MSG_Type_KVCli_Request = 7;
+    MSG_Type_KVCli_Response = 8;
 };
 
 message Msg {
@@ -74,5 +90,7 @@ message Msg {
         RpcRes rpc_response = 6;
         CliReq cli_request = 7;
         CliRes cli_response = 8;
+        KVCliReq kvcli_request = 9;
+        KVCliRes kvcli_response = 10;
     }
 };
