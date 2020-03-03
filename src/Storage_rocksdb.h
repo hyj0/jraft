@@ -19,6 +19,7 @@ private:
     string key_GroupCfg = "groupCfg";
     string key_RaftConfig = "RaftConfig";
     string key_RaftLog = "RaftLog_";
+    map<int, jraft::Storage::Log*> noWriteBuffMap;//cache
 public:
     Storage_rocksdb(string & storageName, string nodeId):Storage(storageName, nodeId) {
         dbName = storageName + "_" + nodeId + ".db";
@@ -38,6 +39,7 @@ public:
         raftConfig.set_commit_index(0);
         raftConfig.set_max_log_index(0);
 //        raftConfig.set_last_log_term(0);
+        storageType = "rocksdb";
     }
     ~Storage_rocksdb() {
     }
@@ -86,6 +88,10 @@ public:
         if (logIndex > raftConfig.max_log_index()) {
             return nullptr;
         }
+        if (noWriteBuffMap.find(logIndex) != noWriteBuffMap.end()) {
+            jraft::Storage::Log *plog =  new jraft::Storage::Log(*noWriteBuffMap[logIndex]);
+            return shared_ptr<jraft::Storage::Log>(plog);
+        }
         shared_ptr<jraft::Storage::Log>  log = make_shared<jraft::Storage::Log>();
         string strJson;
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), getRaftLogKey(logIndex), &strJson);
@@ -110,6 +116,15 @@ public:
             return -1;
         }
         return 0;
+    }
+
+    int setRaftLogNoWrite(jraft::Storage::Log &log, int index) override {
+        noWriteBuffMap[index] = &log;
+        return 0;
+    }
+
+    int deleleRaftLogNoWriteCache(int index) override {
+        return noWriteBuffMap.erase(index);
     }
 
     int setRaftLog(vector<jraft::Storage::Log> &logVect) override {

@@ -8,6 +8,7 @@
 #include "Common.h"
 #include "Log.h"
 #include "Utils.h"
+#include "sys/sysinfo.h"
 
 using namespace std;
 
@@ -35,8 +36,26 @@ void *KVWriteLogCoroutine(void *args) {
     int threadIndex = *(int *)args;
 
     map<string, vector<LogData *>> &groupLogList = g_threadGroupLogList->getGroupList(threadIndex);
+    vector<int> *sumArray = g_threadGroupLogList->getSumArray();
     while (1) {
-        int ret = co_cond_timedwait(g_threadGroupLogList->getThreadCond(threadIndex), 1000*80);
+        int waitTime_ms = 5;
+        Timer timer(waitTime_ms);
+        while (timer.hasRemainTime()) {
+            int timeout_ms = timer.getRemainTime();
+            if (timeout_ms < 0) {
+                LOG_COUT << "Timer bug here" << LOG_ENDL;
+                break;
+            }
+            co_cond_timedwait(g_threadGroupLogList->getThreadCond(threadIndex), timeout_ms);
+//            if (timer.getRemainTime() > 5) {
+//                timer.resetTime(5);
+//            }
+            if (sumArray->at(threadIndex) > 2) {
+                break;
+            }
+        }
+        sumArray->at(threadIndex) = 0;//Clear
+
         for (auto it = groupLogList.begin(); it != groupLogList.end(); ++it) {
             vector<LogData *> &logDataV = it->second;
             if (logDataV.size() <= 0) {
@@ -49,17 +68,7 @@ void *KVWriteLogCoroutine(void *args) {
                 LOG_COUT << "preWriteLog err ret=" << startLogid << LOG_ENDL;
                 assert(0);//todo:preWriteLog err
             }
-            //:batch write
-            LOG_COUT << "size=" << logDataV.size() << LOG_ENDL;
-            vector<jraft::Storage::Log> batchLog;
-            for (int i = 0; i < logDataV.size(); ++i) {
-                batchLog.push_back(logDataV[i]->log);
-            }
-            //写入
-            commonIt->second->getStorage()->setRaftLog(batchLog);
-            for (int j = 0; j < logDataV.size(); ++j) {
-                logDataV[j]->state = 1;
-            }
+
             //通知处理
             commonIt->second->getRaftMachine()->notifyLeaderSendLog();
             logDataV.clear();
@@ -127,7 +136,7 @@ void *KVWorkerCoroutine(void *args) {
             struct pollfd pf = { 0 };
             pf.fd = fd;
             pf.events = (POLLIN|POLLERR|POLLHUP);
-            int ret = co_poll( co_get_epoll_ct(),&pf,1,5*1000);
+            int ret = co_poll( co_get_epoll_ct(),&pf,1,55*1000);
             if (ret == 0) {
                 continue;
             }
@@ -190,6 +199,7 @@ void *KVWorkerCoroutine(void *args) {
             long tid = GetThreadId();
             logData.tid = tid;
             logData.state = 0;
+            logData.writeState = 0;
             logData.groupId = recvMsg->group_id();
 //            LOG_COUT << "worker tid=" << tid << LOG_ENDL;
             jraft::Network::Msg resMsg;
@@ -199,6 +209,7 @@ void *KVWorkerCoroutine(void *args) {
 
             if (recvMsg->msg_type() == jraft::Network::MSG_Type_KVCli_Request) {
                 if (kvCliReq->request_type() == 1) {
+#if 1
                     ret  = g_threadGroupLogList->addLogData(threadIndex, recvMsg->group_id(), &logData);
                     if (ret != 0) {
                         LOG_COUT << "addLogData err!!" << LOG_ENDL;
@@ -206,6 +217,16 @@ void *KVWorkerCoroutine(void *args) {
                     }
                     //通知写入协程
                     co_cond_signal(g_threadGroupLogList->getThreadCond(threadIndex));
+#else
+                    auto commonIt = g_groupIdCommonMap->find(recvMsg->group_id());
+                    vector<LogData*> logDataV;
+                    logDataV.push_back(&logData);
+                    int startLogid = commonIt->second->getRaftMachine()->preWriteLog(logDataV);
+                    commonIt->second->getStorage()->setRaftLog(logData.log, logData.log.log_index());
+                    logData.state = 1;
+                    //通知处理
+                    commonIt->second->getRaftMachine()->notifyLeaderSendLog();
+#endif
                     //处理返回
                     while (logData.state != 2) {
                         ret = co_cond_timedwait(cond, 1000*5);
@@ -266,7 +287,7 @@ void *KVAcceptCoroutine(void *args) {
         struct pollfd pf = { 0 };
         pf.fd = g_tcpServFd;
         pf.events = (POLLIN | POLLERR | POLLHUP);
-        int ret = co_poll(co_get_epoll_ct(), &pf, 1, 10000 );
+        int ret = co_poll(co_get_epoll_ct(), &pf, 1, 1000*50 );
         if (ret == 0) {
             continue;
         }
@@ -297,7 +318,6 @@ void evloopFun(void *arg) {
 
 void *KVServerThread(void *args) {
     int threadIndex = (int)args;
-    LOG_COUT << "threadIndex=" << threadIndex << LOG_ENDL;
     for (int i = 0; i < 100; ++i) {
         task_t * task = (task_t*)calloc( 1,sizeof(task_t) );
         task->fd = -1;
@@ -325,12 +345,16 @@ int StartKVServer(map<string, Common *> &groupIdCommonMap, int tcpPort) {
     }
     SetNonBlock(g_tcpServFd);
     //处理KV请求的线程
-    int nThreadCount = 8;
+    int nCpu = sysconf(_SC_NPROCESSORS_CONF);
+    int nCpuOn = sysconf(_SC_NPROCESSORS_ONLN);
+    int nCore = get_nprocs();
+    LOG_COUT << "cpu:" << nCpu << " " << nCpuOn << " " << nCore << LOG_ENDL;
+    int nThreadCount = nCpuOn*2;
+    LOG_COUT << "nThreadCount=" << nThreadCount << LOG_ENDL;
     g_threadGroupLogList = new ThreadGroupLogList(nThreadCount, groupIdCommonMap);
     g_readwrite_task = new stack<task_t*>[nThreadCount];
     pthread_t *tinfo = static_cast<pthread_t *>(calloc(nThreadCount, sizeof(pthread_t)));
     for (int j = 0; j < nThreadCount; ++j) {
-        LOG_COUT << "j=" << j << LOG_ENDL;
 #if 1
         int ret = pthread_create(&tinfo[j], NULL, KVServerThread, (void *)j);
 #else

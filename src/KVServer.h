@@ -23,6 +23,7 @@ class ThreadGroupLogList {
 private:
     vector<map<string, vector<LogData *>>> threadGroupLogList; // 访问threadGroupLogList[threadIndex][groupId]-->vector<logData*>
     vector<stCoCond_t *> thread_cond; //通知写入线程的信号
+    vector<int > sumArray; //每个线程的sum
 public:
     ThreadGroupLogList(int threadCount, map<string, Common *> &groupIdCommonMap) {
         for (int i = 0; i < threadCount; ++i) {
@@ -35,6 +36,7 @@ public:
             threadGroupLogList.push_back(gMap);
             struct stCoCond_t *cond = co_cond_alloc();
             thread_cond.push_back(cond);
+            sumArray.push_back(0);
         }
     }
 
@@ -45,6 +47,7 @@ public:
             return -1;
         }
         threadGroupLogList[threadIndex][groupId].push_back(logData);
+        sumArray[threadIndex] += 1;
         return 0;
     }
 
@@ -54,6 +57,10 @@ public:
 
     map<string, vector<LogData *>> &getGroupList(int threadIndex) {
         return threadGroupLogList[threadIndex];
+    }
+
+    vector<int> *getSumArray() {
+        return &sumArray;
     }
 };
 

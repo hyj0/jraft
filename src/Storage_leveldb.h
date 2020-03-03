@@ -42,6 +42,7 @@ public:
         raftConfig.set_commit_index(0);
         raftConfig.set_max_log_index(0);
 //        raftConfig.set_last_log_term(0);
+        storageType = "leveldb";
     }
     ~Storage_leveldb() {
     }
@@ -90,6 +91,10 @@ public:
         if (logIndex > raftConfig.max_log_index()) {
             return nullptr;
         }
+        if (noWriteBuffMap.find(logIndex) != noWriteBuffMap.end()) {
+            jraft::Storage::Log *plog =  new jraft::Storage::Log(*noWriteBuffMap[logIndex]);
+            return shared_ptr<jraft::Storage::Log>(plog);
+        }
         shared_ptr<jraft::Storage::Log>  log = make_shared<jraft::Storage::Log>();
         string strJson;
         leveldb::Status status = db->Get(leveldb::ReadOptions(), getRaftLogKey(logIndex), &strJson);
@@ -115,7 +120,49 @@ public:
         }
         return 0;
     }
+#if 0
+    int setRaftLog(vector<jraft::Storage::Log> &logVect) override {
+        leveldb::WriteBatch writeBatch;
+        for (int i = 0; i < logVect.size(); ++i) {
+            Pb2Json::Json json;
+            Pb2Json::Message2Json(logVect[i], json, true);
+            leveldb::WriteOptions writeOptions = leveldb::WriteOptions();
+            writeBatch.Put(getRaftLogKey(logVect[i].log_index()), json.dump());
+        }
+        leveldb::WriteOptions writeOptions = leveldb::WriteOptions();
+        writeOptions.sync = true;
+        leveldb::Status status = db->Write(writeOptions, &writeBatch);
+        if (!status.ok()) {
+            LOG_COUT << "put err:" << LOG_ENDL;
+            return -1;
+        }
+        return 0;
+    }
 
+    int setRaftLog(vector<jraft::Storage::Log> &logVect, const jraft::Storage::RaftConfig &raftConfig) override {
+        leveldb::WriteBatch writeBatch;
+        for (int i = 0; i < logVect.size(); ++i) {
+            Pb2Json::Json json;
+            Pb2Json::Message2Json(logVect[i], json, true);
+            leveldb::WriteOptions writeOptions = leveldb::WriteOptions();
+            writeBatch.Put(getRaftLogKey(logVect[i].log_index()), json.dump());
+        }
+
+        Pb2Json::Json json;
+        Pb2Json::Message2Json(raftConfig, json, true);
+        writeBatch.Put(key_RaftConfig, json.dump());
+
+        leveldb::WriteOptions writeOptions = leveldb::WriteOptions();
+        writeOptions.sync = true;
+        leveldb::Status status = db->Write(writeOptions, &writeBatch);
+        if (!status.ok()) {
+            LOG_COUT << "put err:" << LOG_ENDL;
+            return -1;
+        }
+        Storage::setRaftConfig(raftConfig);
+        return 0;
+    }
+#endif
     string getRaftLogKey(int index) {
         stringstream strBuff;
         strBuff << key_RaftLog << index;

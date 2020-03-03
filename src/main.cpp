@@ -76,7 +76,13 @@ int co_accept(int fd, struct sockaddr *addr, socklen_t *len);
 void *leaderSendLogCoroutine(void *arg) {
     RaftMachine *raftMachine = (RaftMachine *)arg;
     LOG_COUT << "start leaderSendLogCoroutine" << LOG_ENDL;
-    raftMachine->leaderSendLogProccess();
+    raftMachine->leaderSendLogCoroutine();
+}
+
+void *leaderWriteLogThread(void *arg) {
+    RaftMachine *raftMachine = (RaftMachine *)arg;
+    LOG_COUT << "start leaderSendLogCoroutine" << LOG_ENDL;
+    raftMachine->leaderWriteLogThread();
 }
 
 void *startRaftMachine(void *arg)
@@ -89,6 +95,9 @@ void *startRaftMachine(void *arg)
 
     RaftMachine *pRaftMachine = new RaftMachine(storage, network, common->getGroupCfg(), selfNode);
     common->setRaftMachine(pRaftMachine);
+
+    pthread_t tid;
+    int ret = pthread_create(&tid, NULL, leaderWriteLogThread, pRaftMachine);
 
     //新建leader发送log协程
     stCoRoutine_t *ctx = NULL;
@@ -108,7 +117,7 @@ void *mainCoroutine(void *arg)
         struct pollfd pf = {0};
         pf.fd = servFd;
         pf.events = (POLLIN | POLLERR | POLLHUP);
-        int ret = co_poll(co_get_epoll_ct(), &pf, 1, 1000*10);
+        int ret = co_poll(co_get_epoll_ct(), &pf, 1, 1000*50);
         if (ret == 0) {
             LOG_COUT << "no data fd=" << servFd << LOG_ENDL;
             continue;
@@ -170,8 +179,8 @@ void loopFun(void *arg) {
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        LOG_COUT << "usage:" << argv[0] << " configfile" << LOG_ENDL;
+    if (argc < 2) {
+        LOG_COUT << "usage:" << argv[0] << " configfile [mem|leveldb|rocksdb]" << LOG_ENDL;
         return 1;
     }
     Config config(argv[1]);
@@ -179,6 +188,18 @@ int main(int argc, char **argv)
     if (ret != 0) {
         LOG_COUT <<  "read config err ret=" << ret << LOG_ENDL;
         return ret;
+    }
+
+    string storageType = "mem";
+    if (argc >= 3) {
+        storageType = argv[2];
+        if (storageType == "mem"
+            || storageType == "leveldb"
+            || storageType == "rocksdb") {
+        } else {
+            LOG_COUT << "storageType err  [mem|leveldb|rocksdb] " << LOG_ENDL;
+            return -1;
+        }
     }
 
     signal(SIGTERM|SIGINT | SIGQUIT | SIGKILL, signalHand);
@@ -201,8 +222,19 @@ int main(int argc, char **argv)
         shared_ptr<GroupCfg> &oneGroup = groups[i];
         stringstream strNodeSpecBuf;
         strNodeSpecBuf << oneGroup->getGroupId() << "_" << selfnode->first << "_" << selfnode->second;
-        common->setStorage(new Storage_rocksdb(const_cast<string &>(groups[i]->getStorage()),
-                                               strNodeSpecBuf.str()));
+        Storage *pStorage = NULL;;
+        if (storageType == "mem") {
+            pStorage = new Storage(const_cast<string &>(groups[i]->getStorage()),
+                                           strNodeSpecBuf.str());
+        } else if (storageType == "leveldb"){
+            pStorage = new Storage_leveldb(const_cast<string &>(groups[i]->getStorage()),
+                                   strNodeSpecBuf.str());
+        } else if (storageType == "rocksdb") {
+            pStorage = new Storage_rocksdb(const_cast<string &>(groups[i]->getStorage()),
+                                           strNodeSpecBuf.str());
+        }
+        LOG_COUT << "storageType=" << pStorage->getStorageType() << LOG_ENDL;
+        common->setStorage(pStorage);
         common->setNetwork(new Network(servFd));
         common->setGroupCfg(groups[i].get());
         common->setSelfnode(selfnode);

@@ -42,6 +42,9 @@ private:
     long tid;
     int notify_events;
     queue<LogData *> readyLogQue; //已经持久化存储的日志
+    RingBuff writeLogThreadBuff_; //写入线程队列
+    pthread_mutex_t writeLogThreadLock; //写入线程锁
+    pthread_cond_t writeLogThreadCond;//写入线程信号
 public:
     RaftMachine(Storage *storage, Network *network, GroupCfg *groupCfg, const shared_ptr<pair<string, int>> &selfNode)
             : storage(storage), network(network), groupCfg(groupCfg), selfNode(selfNode) {
@@ -89,7 +92,10 @@ public:
     //业务通知leader预写完成, 触发leader发送log给follower
     int notifyLeaderSendLog();
 
-    leaderSendLogProccess();
+    leaderSendLogCoroutine();
+
+    //写log线程
+    leaderWriteLogThread();
 
     eventLoop();
 };

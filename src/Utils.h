@@ -65,6 +65,7 @@ public:
 class LogData {
 public:
     int state; //0--init 1--写入存储完成, 2--apply完成
+    int writeState; //0--未写入, 1--写入存储完成
     long tid;//
     string groupId;
     //data
@@ -103,7 +104,7 @@ public:
     }
 
     bool IsFull() {
-        if (Index(endIndex) == Index(startIndex)) {
+        if (Index(endIndex+1) == Index(startIndex)) {
             return true;
         } else {
             return false;
@@ -112,14 +113,24 @@ public:
 
     long addBuff(LogData *inKvData) {
         pthread_mutex_lock(&lock);
-//        if (IsFull()) {
-//            pthread_mutex_unlock(&lock);
-//            return -1;
-//        }
+        if (IsFull()) {
+            pthread_mutex_unlock(&lock);
+            return -1;
+        }
         kvData[Index(endIndex)] = inKvData;
         long ret = endIndex;
         endIndex += 1;
         pthread_mutex_unlock(&lock);
+        return ret;
+    }
+
+    long addBuffNoLock(LogData *inKvData) {
+        if (IsFull()) {
+            return -1;
+        }
+        kvData[Index(endIndex)] = inKvData;
+        long ret = endIndex;
+        endIndex += 1;
         return ret;
     }
 

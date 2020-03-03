@@ -12,15 +12,18 @@
 
 class Storage {
 protected:
+    string storageType = "mem";
     jraft::Storage::RaftConfig raftConfig;
     GroupCfg groupCfg;
     vector<jraft::Storage::Log> raftLogArray;
-    pthread_mutex_t raftLogArrayLock;
+    map<int, jraft::Storage::Log*> noWriteBuffMap;//cache
 public:
     Storage (string & storageName, string nodeId) {
+        //todo:多线程读写有问题,先临时分配, 大于这么多的还是有多线程问题
+        raftLogArray.reserve(10000*200);
         jraft::Storage::Log log;
-        raftLogArray.push_back(log);
-        raftLogArrayLock = PTHREAD_MUTEX_INITIALIZER;
+        setRaftLog(log, 0);
+        storageType = "mem";
     }
 
     virtual ~Storage() {}
@@ -58,7 +61,6 @@ public:
     }
 
     virtual int setRaftLog(jraft::Storage::Log &log, int index) {
-        pthread_mutex_lock(&raftLogArrayLock);
         if (index < raftLogArray.size()) {
             raftLogArray[index] = log;
         } else {
@@ -67,11 +69,21 @@ public:
             } else {
                 raftLogArray.resize(index+1);
                 raftLogArray[index] = log;
-//                LOG_COUT << "logIndex err logIndex=" << index << LOG_ENDL;
-//                return -1;
+                LOG_COUT << "logIndex err logIndex=" << index << LOG_ENDL;
+                assert(0);
+                return -1;
             }
         }
-        pthread_mutex_unlock(&raftLogArrayLock);
+        return 0;
+    }
+
+    virtual int setRaftLogNoWrite(jraft::Storage::Log &log, int index) {
+        noWriteBuffMap[index] = &log;;
+        return 0;
+    }
+
+    virtual int deleleRaftLogNoWriteCache(int index) {
+        noWriteBuffMap.erase(index);
         return 0;
     }
 
@@ -84,6 +96,10 @@ public:
     virtual int setRaftLog(vector<jraft::Storage::Log> &logVect, const jraft::Storage::RaftConfig &raftConfig) {
         setRaftLog(logVect);
         setRaftConfig(raftConfig);
+    }
+
+    virtual const string &getStorageType() const {
+        return storageType;
     }
 };
 
