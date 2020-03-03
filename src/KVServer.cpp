@@ -63,7 +63,7 @@ void *KVWriteLogCoroutine(void *args) {
             }
             auto commonIt = g_groupIdCommonMap->find(it->first);
             //预写
-            int startLogid = commonIt->second->getRaftMachine()->preWriteLog(logDataV);
+            int startLogid = commonIt->second->getRaftMachine()->preWriteLog(logDataV, threadIndex);
             if (startLogid < 0) {
                 LOG_COUT << "preWriteLog err ret=" << startLogid << LOG_ENDL;
                 assert(0);//todo:preWriteLog err
@@ -336,7 +336,7 @@ void *KVServerThread(void *args) {
     co_eventloop(co_get_epoll_ct(), evloopFun, NULL);
 }
 
-int StartKVServer(map<string, Common *> &groupIdCommonMap, int tcpPort) {
+int StartKVServer(map<string, Common *> &groupIdCommonMap, int tcpPort, int nThreadCount) {
     g_groupIdCommonMap = &groupIdCommonMap;
     g_tcpServFd = CreateTcpSocket(tcpPort, "*", true);
     if (g_tcpServFd < 0) {
@@ -345,12 +345,6 @@ int StartKVServer(map<string, Common *> &groupIdCommonMap, int tcpPort) {
     }
     SetNonBlock(g_tcpServFd);
     //处理KV请求的线程
-    int nCpu = sysconf(_SC_NPROCESSORS_CONF);
-    int nCpuOn = sysconf(_SC_NPROCESSORS_ONLN);
-    int nCore = get_nprocs();
-    LOG_COUT << "cpu:" << nCpu << " " << nCpuOn << " " << nCore << LOG_ENDL;
-    int nThreadCount = nCpuOn*2;
-    LOG_COUT << "nThreadCount=" << nThreadCount << LOG_ENDL;
     g_threadGroupLogList = new ThreadGroupLogList(nThreadCount, groupIdCommonMap);
     g_readwrite_task = new stack<task_t*>[nThreadCount];
     pthread_t *tinfo = static_cast<pthread_t *>(calloc(nThreadCount, sizeof(pthread_t)));

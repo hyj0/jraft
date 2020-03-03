@@ -48,12 +48,21 @@ public:
         Common::raftMachine = raftMachine;
     }
 
+    int getBusinessThreads() const {
+        return businessThreads;
+    }
+
+    void setBusinessThreads(int businessThreads) {
+        Common::businessThreads = businessThreads;
+    }
+
 private:
     GroupCfg *groupCfg;
     Network *network;
     Storage *storage;
     shared_ptr<pair<string, int>> selfnode;
     RaftMachine *raftMachine;
+    int businessThreads;//业务线程数
 public:
     const shared_ptr<pair<string, int>> &getSelfnode() const {
         return selfnode;

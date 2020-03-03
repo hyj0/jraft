@@ -72,7 +72,7 @@ void *KVAcceptCoroutine(void *args);
 
 void *KVServerThread(void *args);
 
-int StartKVServer(map<string, Common *> &groupIdCommonMap, int tcpPort);
+int StartKVServer(map<string, Common *> &groupIdCommonMap, int tcpPort, int nThreadCount);
 
 
 #endif //PROJECT_KVSERVER_H

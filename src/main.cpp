@@ -18,6 +18,7 @@
 #include "Storage_leveldb.h"
 #include "Storage_rocksdb.h"
 #include "KVServer.h"
+#include "sys/sysinfo.h"
 using namespace std;
 
 //clock_gettime
@@ -93,7 +94,7 @@ void *startRaftMachine(void *arg)
     Storage *storage = common->getStorage();
     shared_ptr<pair<string, int>> selfNode = common->getSelfnode();
 
-    RaftMachine *pRaftMachine = new RaftMachine(storage, network, common->getGroupCfg(), selfNode);
+    RaftMachine *pRaftMachine = new RaftMachine(storage, network, common->getGroupCfg(), selfNode, common->getBusinessThreads());
     common->setRaftMachine(pRaftMachine);
 
     pthread_t tid;
@@ -202,6 +203,13 @@ int main(int argc, char **argv)
         }
     }
 
+    int nCpu = sysconf(_SC_NPROCESSORS_CONF);
+    int nCpuOn = sysconf(_SC_NPROCESSORS_ONLN);
+    int nCore = get_nprocs();
+    LOG_COUT << "cpu:" << nCpu << " " << nCpuOn << " " << nCore << LOG_ENDL;
+    int nThreadCount = nCpuOn*2;
+    LOG_COUT << "nThreadCount=" << nThreadCount << LOG_ENDL;
+
     signal(SIGTERM|SIGINT | SIGQUIT | SIGKILL, signalHand);
 
     auto configJson = config.getConfigJson();
@@ -219,6 +227,7 @@ int main(int argc, char **argv)
     vector<shared_ptr<GroupCfg>> groups = config.getGroups();
     for (int i = 0; i < groups.size(); ++i) {
         Common *common = new Common();
+        common->setBusinessThreads(nThreadCount);
         shared_ptr<GroupCfg> &oneGroup = groups[i];
         stringstream strNodeSpecBuf;
         strNodeSpecBuf << oneGroup->getGroupId() << "_" << selfnode->first << "_" << selfnode->second;
@@ -249,7 +258,7 @@ int main(int argc, char **argv)
     co_create(&ctx, NULL, mainCoroutine, &groupIdCommonMap);
     co_resume(ctx);
 
-    StartKVServer(groupIdCommonMap, selfnode->second);
+    StartKVServer(groupIdCommonMap, selfnode->second, nThreadCount);
 
     co_eventloop(co_get_epoll_ct(), loopFun, &groupIdCommonMap);
 }

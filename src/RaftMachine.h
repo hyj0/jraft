@@ -37,7 +37,8 @@ private:
     shared_ptr<NodesLogInfo> nodesLogInfo;
     string leader_id;
 
-    RingBuff preWriteBuff_;
+    RingBuff *preWriteBuffArray;
+    int businessThreads;//业务线程数, 对应的preWriteBuff_大小
     struct stCoCond_t *preWriteCond;
     long tid;
     int notify_events;
@@ -46,8 +47,8 @@ private:
     pthread_mutex_t writeLogThreadLock; //写入线程锁
     pthread_cond_t writeLogThreadCond;//写入线程信号
 public:
-    RaftMachine(Storage *storage, Network *network, GroupCfg *groupCfg, const shared_ptr<pair<string, int>> &selfNode)
-            : storage(storage), network(network), groupCfg(groupCfg), selfNode(selfNode) {
+    RaftMachine(Storage *storage, Network *network, GroupCfg *groupCfg, const shared_ptr<pair<string, int>> &selfNode, int businessThreads)
+            : storage(storage), network(network), groupCfg(groupCfg), selfNode(selfNode), businessThreads(businessThreads) {
         /*load group config*/
         const GroupCfg &storageGroupCfg = storage->getGroupCfg();
         if (!storageGroupCfg.getNodes().empty()) {
@@ -59,6 +60,7 @@ public:
         this->raftStatus = RAFT_STAT_FOLLOWER;
         preWriteCond = co_cond_alloc();
         tid = GetThreadId();
+        preWriteBuffArray = new RingBuff[businessThreads];
     }
 
     void start();
@@ -87,7 +89,7 @@ public:
     //业务预写log, 只是写入内存队列,
     //返回值>0 则返回值为开始的logid, 可使用的范围[logid, logList.size]
     //<0 则出错
-    int preWriteLog(vector<LogData *> &logList);
+    int preWriteLog(vector<LogData *> &logList, int threadIndex);
 
     //业务通知leader预写完成, 触发leader发送log给follower
     int notifyLeaderSendLog();

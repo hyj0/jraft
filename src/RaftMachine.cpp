@@ -465,12 +465,6 @@ int RaftMachine::candidaterProcess() {
 }
 
 int RaftMachine::leaderProcess() {
-    //todo:重置PreWriteLog
-    preWriteBuff_.retSetIndex(raftConfig.max_log_index()+1);
-    if (raftConfig.max_log_index() == 0) {
-        preWriteBuff_.retSetIndex(2);
-    }
-
     int initFlag = false;
     while (true)
     {
@@ -802,25 +796,20 @@ int RaftMachine::getLastLogTerm() {
     return raftLog->term();
 }
 
-int RaftMachine::preWriteLog(vector<LogData *> &logList) {
-#if 1
+int RaftMachine::preWriteLog(vector<LogData *> &logList, int threadIndex) {
     if (raftStatus != RAFT_STAT_LEADER) {
         return -1;
     }
-#else
-    retLogId = 1;
-#endif
-    if (preWriteBuff_.IsFull()) {
+
+    if (preWriteBuffArray[threadIndex].IsFull()) {
         return -2;
     }
 
     for (int i = 0; i < logList.size(); ++i) {
-        long retIndex = preWriteBuff_.addBuff(logList[i]);
+        long retIndex = preWriteBuffArray[threadIndex].addBuffNoLock(logList[i]);
         if (retIndex < 0) {
             assert(0);
         }
-        logList[i]->log.set_term(raftConfig.current_term());
-        logList[i]->log.set_log_index(retIndex);
     }
     return 0;
 }
@@ -868,33 +857,37 @@ int RaftMachine::leaderSendLogCoroutine() {
 
         //todo:检查preWriteLog
         int old_log_id = raftConfig.max_log_index();
-        int index = 0;
-        for (; index < 1000; index++) {
-            if (!preWriteBuff_.IsIn(preWriteBuff_.getStartIndex())) {
-                break;
-            }
-            LogData *logData =preWriteBuff_.getData(preWriteBuff_.getStartIndex());
-            if (logData == NULL) {
-                break;
-            }
-
-            if (logData->log.log_index() == raftConfig.max_log_index()+1) {
-                raftConfig.set_max_log_index(raftConfig.max_log_index()+1);
-                preWriteBuff_.popOne();
-//                LOG_COUT << "readyLogQue.push logid=" << logData->log.log_index() << LOG_ENDL;
-                readyLogQue.push(logData);
-                if (storage->getStorageType() == "mem") {
-                    //mem直接写
-                    storage->setRaftLog(logData->log, logData->log.log_index());
-                    logData->writeState = 1;
-                } else {
-                    writeLogThreadBuff_.addBuffNoLock(logData);
-                    storage->setRaftLogNoWrite(logData->log, logData->log.log_index());
+        for (int k = 0; k < businessThreads; ++k) {
+            int index = 0;
+            for (; index < 1000; index++) {
+                if (!preWriteBuffArray[k].IsIn(preWriteBuffArray[k].getStartIndex())) {
+                    break;
                 }
-            } else {
-                LOG_COUT << "ERR!!  logData->log.log_index() != raftConfig.max_log_index()+1 "
-                << logData->log.log_index() <<" "<< raftConfig.max_log_index()<< LOG_ENDL;
-                break;
+                LogData *logData =preWriteBuffArray[k].getData(preWriteBuffArray[k].getStartIndex());
+                if (logData == NULL) {
+                    break;
+                }
+
+                if (1) {
+                    logData->log.set_log_index(raftConfig.max_log_index()+1);
+                    logData->log.set_term(raftConfig.current_term());
+                    raftConfig.set_max_log_index(raftConfig.max_log_index()+1);
+                    preWriteBuffArray[k].popOne();
+//                LOG_COUT << "readyLogQue.push logid=" << logData->log.log_index() << LOG_ENDL;
+                    readyLogQue.push(logData);
+                    if (storage->getStorageType() == "mem") {
+                        //mem直接写
+                        storage->setRaftLog(logData->log, logData->log.log_index());
+                        logData->writeState = 1;
+                    } else {
+                        writeLogThreadBuff_.addBuffNoLock(logData);
+                        storage->setRaftLogNoWrite(logData->log, logData->log.log_index());
+                    }
+                } else {
+                    LOG_COUT << "ERR!!  logData->log.log_index() != raftConfig.max_log_index()+1 "
+                             << logData->log.log_index() <<" "<< raftConfig.max_log_index()<< LOG_ENDL;
+                    break;
+                }
             }
         }
 
