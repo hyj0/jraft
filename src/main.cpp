@@ -83,6 +83,7 @@ void *leaderSendLogCoroutine(void *arg) {
 void *leaderWriteLogThread(void *arg) {
     RaftMachine *raftMachine = (RaftMachine *)arg;
     LOG_COUT << "start leaderSendLogCoroutine" << LOG_ENDL;
+    Utils::bindThreadCpu(1);
     raftMachine->leaderWriteLogThread();
 }
 
@@ -259,7 +260,7 @@ int main(int argc, char **argv)
     co_resume(ctx);
 
     StartKVServer(groupIdCommonMap, selfnode->second, nThreadCount);
-
+    Utils::bindThreadCpu(0);
     co_eventloop(co_get_epoll_ct(), loopFun, &groupIdCommonMap);
 }
 

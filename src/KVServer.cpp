@@ -38,6 +38,7 @@ void *KVWriteLogCoroutine(void *args) {
     map<string, vector<LogData *>> &groupLogList = g_threadGroupLogList->getGroupList(threadIndex);
     vector<int> *sumArray = g_threadGroupLogList->getSumArray();
     while (1) {
+#if 1
         int waitTime_ms = 5;
         Timer timer(waitTime_ms);
         while (timer.hasRemainTime()) {
@@ -55,12 +56,16 @@ void *KVWriteLogCoroutine(void *args) {
             }
         }
         sumArray->at(threadIndex) = 0;//Clear
-
+#else
+        co_cond_timedwait(g_threadGroupLogList->getThreadCond(threadIndex), 1000*5);
+#endif
         for (auto it = groupLogList.begin(); it != groupLogList.end(); ++it) {
             vector<LogData *> &logDataV = it->second;
             if (logDataV.size() <= 0) {
                 continue;
             }
+
+#if 1
             auto commonIt = g_groupIdCommonMap->find(it->first);
             //预写
             int startLogid = commonIt->second->getRaftMachine()->preWriteLog(logDataV, threadIndex);
@@ -71,6 +76,14 @@ void *KVWriteLogCoroutine(void *args) {
 
             //通知处理
             commonIt->second->getRaftMachine()->notifyLeaderSendLog();
+#else
+            //todo:TEST直接返回测试
+            for (int i = 0; i < logDataV.size(); ++i) {
+                logDataV[i]->state = 2;
+                logDataV[i]->writeState = 1;
+                co_cond_signal(logDataV[i]->cond);
+            }
+#endif
             logDataV.clear();
         }
 #if 0
@@ -332,7 +345,7 @@ void *KVServerThread(void *args) {
 
     co_create(&ctx, NULL, KVWriteLogCoroutine, &threadIndex);
     co_resume(ctx);
-
+    Utils::bindThreadCpu(threadIndex);
     co_eventloop(co_get_epoll_ct(), evloopFun, NULL);
 }
 

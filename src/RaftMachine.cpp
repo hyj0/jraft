@@ -867,7 +867,7 @@ int RaftMachine::leaderSendLogCoroutine() {
                 if (logData == NULL) {
                     break;
                 }
-
+#if 1
                 if (1) {
                     logData->log.set_log_index(raftConfig.max_log_index()+1);
                     logData->log.set_term(raftConfig.current_term());
@@ -888,6 +888,13 @@ int RaftMachine::leaderSendLogCoroutine() {
                              << logData->log.log_index() <<" "<< raftConfig.max_log_index()<< LOG_ENDL;
                     break;
                 }
+#else
+                //todo:直接返回KVServer 测试性能
+                preWriteBuffArray[k].popOne();
+                logData->writeState = 1;
+                logData->state = 2;
+                CoroutineSignalOverThread::getInstance()->addSig(logData->cond, logData->tid);
+#endif
             }
         }
 
@@ -964,7 +971,7 @@ int RaftMachine::notifyLeaderSendLog() {
 
 int RaftMachine::eventLoop() {
     if (notify_events > 0) {
-        LOG_COUT << "notify_events=" << notify_events << LOG_ENDL;
+//        LOG_COUT << "notify_events=" << notify_events << LOG_ENDL;
         notify_events = notify_events/2;
         co_cond_signal(preWriteCond);
     }

@@ -40,8 +40,8 @@ private:
     RingBuff *preWriteBuffArray;
     int businessThreads;//业务线程数, 对应的preWriteBuff_大小
     struct stCoCond_t *preWriteCond;
-    long tid;
-    int notify_events;
+    long tid; //RaftMachine的tid, 目前不用了
+    int notify_events; //业务通知RaftMachine::leaderSendLogCoroutine
     queue<LogData *> readyLogQue; //已经持久化存储的日志
     RingBuff writeLogThreadBuff_; //写入线程队列
     pthread_mutex_t writeLogThreadLock; //写入线程锁

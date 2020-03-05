@@ -13,6 +13,7 @@
 #include <storage.pb.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <sched.h>
 
 using namespace std;
 
@@ -30,6 +31,19 @@ public:
     static int getThreadId();
 
     static int getPid();
+
+    static int bindThreadCpu(int nCpuIndex) {
+        int cpu_nums = sysconf(_SC_NPROCESSORS_CONF);
+        int index = nCpuIndex % cpu_nums;
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+        CPU_SET(index,&mask);
+        if(-1 == pthread_setaffinity_np(pthread_self() ,sizeof(mask),&mask))
+        {
+            return -1;
+        }
+        return 0;
+    }
 };
 
 class Timer {
@@ -78,7 +92,7 @@ public:
 class RingBuff {
     unsigned long startIndex;
     unsigned long endIndex;
-    LogData *kvData[RING_BUFF_SIZE];
+    LogData *kvData[RING_BUFF_SIZE]; //RING_BUFF_SIZE  考虑startIndex endIndex到最大值后+1变成0, 所以ULONG_MAX 和 RING_BUFF_SIZE 要是整数倍
     stCoCond_t *cond; //no use
     pthread_mutex_t lock;
 public:
