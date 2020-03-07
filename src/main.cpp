@@ -87,6 +87,13 @@ void *leaderWriteLogThread(void *arg) {
     raftMachine->leaderWriteLogThread();
 }
 
+void *leaderSendLogThread(void *arg) {
+    RaftMachine *raftMachine = (RaftMachine *)arg;
+    LOG_COUT << "start leaderSendLogThread" << LOG_ENDL;
+    Utils::bindThreadCpu(2);
+    raftMachine->leaderSendLogThread();
+}
+
 void *startRaftMachine(void *arg)
 {
     co_enable_hook_sys();
@@ -100,6 +107,9 @@ void *startRaftMachine(void *arg)
 
     pthread_t tid;
     int ret = pthread_create(&tid, NULL, leaderWriteLogThread, pRaftMachine);
+
+    pthread_t tid1;
+    int ret1 = pthread_create(&tid1, NULL, leaderSendLogThread, pRaftMachine);
 
     //新建leader发送log协程
     stCoRoutine_t *ctx = NULL;

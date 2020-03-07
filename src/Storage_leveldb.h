@@ -91,10 +91,10 @@ public:
         if (logIndex > raftConfig.max_log_index()) {
             return nullptr;
         }
-        if (noWriteBuffMap.find(logIndex) != noWriteBuffMap.end()) {
-            jraft::Storage::Log *plog =  new jraft::Storage::Log(*noWriteBuffMap[logIndex]);
-            return shared_ptr<jraft::Storage::Log>(plog);
-        }
+//        if (noWriteBuffMap.find(logIndex) != noWriteBuffMap.end()) {
+//            jraft::Storage::Log *plog =  new jraft::Storage::Log(*noWriteBuffMap[logIndex]);
+//            return shared_ptr<jraft::Storage::Log>(plog);
+//        }
         shared_ptr<jraft::Storage::Log>  log = make_shared<jraft::Storage::Log>();
         string strJson;
         leveldb::Status status = db->Get(leveldb::ReadOptions(), getRaftLogKey(logIndex), &strJson);

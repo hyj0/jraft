@@ -1,5 +1,5 @@
 
-set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -g -fstack-protector-all")
+set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -o3 -g -fstack-protector-all")
 
 add_subdirectory(third_party/libco)
 add_subdirectory(third_party/json11)

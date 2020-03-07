@@ -4,7 +4,7 @@
 
 #ifndef PROJECT_RAFTMACHINE_H
 #define PROJECT_RAFTMACHINE_H
-
+#include <semaphore.h>
 #include <algorithm>
 #include <storage.pb.h>
 #include "Utils.h"
@@ -46,6 +46,11 @@ private:
     RingBuff writeLogThreadBuff_; //写入线程队列
     pthread_mutex_t writeLogThreadLock; //写入线程锁
     pthread_cond_t writeLogThreadCond;//写入线程信号
+    long hasWriteLogIndex;//已持久化的logindex
+
+    sem_t sendLogThreadSem;
+    RingBuff sendLogThreadBuff;
+
 public:
     RaftMachine(Storage *storage, Network *network, GroupCfg *groupCfg, const shared_ptr<pair<string, int>> &selfNode, int businessThreads)
             : storage(storage), network(network), groupCfg(groupCfg), selfNode(selfNode), businessThreads(businessThreads) {
@@ -61,6 +66,7 @@ public:
         preWriteCond = co_cond_alloc();
         tid = GetThreadId();
         preWriteBuffArray = new RingBuff[businessThreads];
+        sem_init(&sendLogThreadSem, 0, 0);
     }
 
     void start();
@@ -98,6 +104,9 @@ public:
 
     //写log线程
     leaderWriteLogThread();
+
+    //发送log线程
+    leaderSendLogThread();
 
     eventLoop();
 };

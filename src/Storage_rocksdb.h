@@ -85,13 +85,14 @@ public:
     }
 
     shared_ptr<jraft::Storage::Log> getRaftLog(int logIndex) override {
-        if (logIndex > raftConfig.max_log_index()) {
+        if (logIndex > max_log_index) {
+            LOG_COUT << "logIndex > max_log_index => " << logIndex << " " << max_log_index << LOG_ENDL;
             return nullptr;
         }
-        if (noWriteBuffMap.find(logIndex) != noWriteBuffMap.end()) {
-            jraft::Storage::Log *plog =  new jraft::Storage::Log(*noWriteBuffMap[logIndex]);
-            return shared_ptr<jraft::Storage::Log>(plog);
-        }
+//        if (noWriteBuffMap.find(logIndex) != noWriteBuffMap.end()) {
+//            jraft::Storage::Log *plog =  new jraft::Storage::Log(*noWriteBuffMap[logIndex]);
+//            return shared_ptr<jraft::Storage::Log>(plog);
+//        }
         shared_ptr<jraft::Storage::Log>  log = make_shared<jraft::Storage::Log>();
         string strJson;
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), getRaftLogKey(logIndex), &strJson);

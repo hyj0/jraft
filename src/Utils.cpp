@@ -26,23 +26,32 @@ int Utils::getPid() {
 
 int CoroutineSignalOverThread::loopSelfTid() {
     long tid = GetThreadId();
-    if (sigDataArray[tid].condList.size() <= 0) {
-        return 0;
+    if (sigRingBuff[tid] == NULL) {
+        pthread_mutex_lock(&lock);
+        if (sigRingBuff[tid] == NULL) {
+            sigRingBuff[tid] = new RingBuff;
+        }
+        pthread_mutex_unlock(&lock);
     }
-    pthread_mutex_lock(&sigDataArray[tid].lock);
-    for (int i = 0; i < sigDataArray[tid].condList.size(); ++i) {
-//        printf("loopSelfTid co_cond_signal tid=%ld\n", tid);
-        co_cond_signal(sigDataArray[tid].condList[i]);
+    while (1) {
+        stCoCond_t *cond = (stCoCond_t *)sigRingBuff[tid]->popOne();
+        if (cond == NULL) {
+            break;
+        }
+        co_cond_signal(cond);
     }
-    sigDataArray[tid].condList.clear();
-    pthread_mutex_unlock(&sigDataArray[tid].lock);
     return 0;
 }
 
 int CoroutineSignalOverThread::addSig(stCoCond_t *sig, long tid) {
-    pthread_mutex_lock(&sigDataArray[tid].lock);
-    sigDataArray[tid].condList.push_back(sig);
-    pthread_mutex_unlock(&sigDataArray[tid].lock);
+    if (sigRingBuff[tid] == NULL) {
+        pthread_mutex_lock(&lock);
+        if (sigRingBuff[tid] == NULL) {
+            sigRingBuff[tid] = new RingBuff;
+        }
+        pthread_mutex_unlock(&lock);
+    }
+    sigRingBuff[tid]->addBuffNoLock((LogData*)sig);
     return 0;
 }
 

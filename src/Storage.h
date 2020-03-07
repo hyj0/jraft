@@ -14,6 +14,7 @@ class Storage {
 protected:
     string storageType = "mem";
     jraft::Storage::RaftConfig raftConfig;
+    long max_log_index=0;
     GroupCfg groupCfg;
     vector<jraft::Storage::Log> raftLogArray;
     map<int, jraft::Storage::Log*> noWriteBuffMap;//cache
@@ -41,11 +42,19 @@ public:
     }
 
     virtual void setRaftConfig(const jraft::Storage::RaftConfig &raftConfig) {
-        Storage::raftConfig = raftConfig;
+//        Storage::raftConfig = raftConfig;
+        Storage::raftConfig.MergeFrom(raftConfig);
+        //raftConfig填充过程中会把数据先clear!!!!
+        if (max_log_index > raftConfig.max_log_index()) {
+            LOG_COUT << "max_log_index < raftConfig.max_log_index() " << max_log_index << " " <<  raftConfig.max_log_index() << LOG_ENDL;
+            assert(0);
+        }
+        max_log_index = raftConfig.max_log_index();
     }
 
     virtual shared_ptr<jraft::Storage::Log> getRaftLog(int logIndex) {
-        if (logIndex > raftConfig.max_log_index()) {
+        if (logIndex > max_log_index) {
+            LOG_COUT << "logIndex > raftConfig.max_log_index() => " << logIndex << " " << max_log_index << LOG_ENDL;
             return nullptr;
         }
         if (logIndex <= 0) {
@@ -55,7 +64,7 @@ public:
             jraft::Storage::Log *log = new jraft::Storage::Log(raftLogArray[logIndex]);
             return shared_ptr<jraft::Storage::Log>(log);
         } else {
-            LOG_COUT << "logIndex err logIndex=" << logIndex << LOG_ENDL;
+            LOG_COUT << "logIndex err logIndex=" << logIndex << " raftLogArray.size()=" << raftLogArray.size() << LOG_ENDL;
         }
         return NULL;
     }
@@ -91,6 +100,7 @@ public:
         for (int i = 0; i < logVect.size(); ++i) {
             setRaftLog(logVect[i], logVect[i].log_index());
         }
+        return 0;
     }
 
     virtual int setRaftLog(vector<jraft::Storage::Log> &logVect, const jraft::Storage::RaftConfig &raftConfig) {

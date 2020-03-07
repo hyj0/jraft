@@ -185,18 +185,13 @@ public:
 
 long GetThreadId();
 
-class SigData {
-public:
-    vector<stCoCond_t *> condList;
-    pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-};
-
 class CoroutineSignalOverThread {
 private:
-     SigData *sigDataArray;
+     RingBuff *sigRingBuff[102400];
+     pthread_mutex_t lock;
 public:
     CoroutineSignalOverThread() {
-        sigDataArray = new SigData[102400];
+        lock = PTHREAD_MUTEX_INITIALIZER;
     }
     int addSig(stCoCond_t *sig, long tid);
 

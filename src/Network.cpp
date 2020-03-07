@@ -51,6 +51,9 @@ int CreateUdpSecket(char *host, int port, int reuse)
         close(sockfd);
         return ret;
     }
+    unsigned int nLen = 8*1024*1024;
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &nLen, sizeof(nLen));
+    setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &nLen, sizeof(nLen));
     return sockfd;
 }
 
